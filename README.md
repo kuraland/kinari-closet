@@ -14,7 +14,7 @@
 
 ## 公開版
 
-公開URL: https://sasakuradai-prog.github.io/kinari-closet/
+公開URL: https://kuraland.github.io/kinari-closet/
 
 GitHub Pagesで公開しています。登録した写真や服の情報はGitHubには送信されず、アクセスした端末のブラウザ内に保存されます。そのため、パソコン版とスマートフォン版の登録内容は自動同期されません。
 

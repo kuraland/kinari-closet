@@ -1,0 +1,23 @@
+# 追加意図: 週次でトレンド情報の期限を検査し、更新漏れをGitHub Actionsで可視化する。処理日時: 2026-09-27 JST
+name: Trend freshness
+
+on:
+  schedule:
+    - cron: "17 0 * * 1"
+  workflow_dispatch:
+  push:
+    paths:
+      - "trends.json"
+      - "scripts/check-trend-freshness.mjs"
+      - ".github/workflows/trend-freshness.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check trend profile freshness
+        run: node scripts/check-trend-freshness.mjs

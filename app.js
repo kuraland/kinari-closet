@@ -1,6 +1,8 @@
-/* 更新意図: 実用ルール・好み学習・服同士の相性・季節トレンドを統合し、サンプル服を非破壊で再投入できるようにする。処理日時: 2026-09-10 JST */
+/* 更新意図: 好み学習へ時間減衰と利用場面の近さを加え、3案を総合・好み・トレンドの役割別に選び、古いトレンドの影響を自動で弱める。処理日時: 2026-09-27 JST */
 const DB_NAME = "kinari-closet";
 const DB_VERSION = 1;
+const SETTINGS_KEY = "kinari-stylist-settings";
+const PREFERENCE_HALF_LIFE_DAYS = 120;
 
 const labels = {
   category: { tops: "トップス", bottoms: "ボトムス", onepiece: "ワンピース", outer: "アウター", shoes: "靴", accessory: "小物" },
@@ -21,6 +23,7 @@ const DEFAULT_TREND_PROFILE = {
   season: "2026 秋冬",
   title: "クラシックに、色とボリュームで変化を",
   updatedAt: "2026-09-10",
+  validUntil: "2026-11-30",
   colors: ["purple", "pink", "red", "navy", "black"],
   patterns: ["solid", "check", "floral"],
   materials: ["knit", "wool", "leather"],
@@ -68,6 +71,7 @@ let db;
 let items = [];
 let feedback = [];
 let trendProfile = DEFAULT_TREND_PROFILE;
+let trendFreshness = { factor: 1, label: "最新", ageDays: 0 };
 let currentPhoto = null;
 let currentPhotoUrl = null;
 let toastTimer;
@@ -169,6 +173,36 @@ async function loadTrendProfile() {
     console.info("同梱トレンド設定を使用します", error);
     trendProfile = DEFAULT_TREND_PROFILE;
   }
+  trendFreshness = getTrendFreshness(trendProfile);
+}
+
+function getTrendFreshness(profile) {
+  const updatedAt = new Date(`${profile.updatedAt}T00:00:00`);
+  const validUntil = profile.validUntil ? new Date(`${profile.validUntil}T23:59:59`) : null;
+  if (Number.isNaN(updatedAt.getTime())) return { factor: .35, label: "更新日不明", ageDays: null };
+  const ageDays = Math.max(0, Math.floor((Date.now() - updatedAt.getTime()) / 86400000));
+  if (validUntil && Date.now() > validUntil.getTime()) return { factor: .35, label: "更新期限切れ", ageDays };
+  if (ageDays <= 45) return { factor: 1, label: "最新", ageDays };
+  if (ageDays <= 90) return { factor: .75, label: "更新推奨", ageDays };
+  return { factor: .45, label: "情報が古いため影響を縮小", ageDays };
+}
+
+function loadStylistSettings() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}");
+    if (Number.isFinite(Number(saved.preferenceBalance))) {
+      $("#preference-balance").value = String(clamp(Number(saved.preferenceBalance)));
+    }
+  } catch (error) {
+    console.info("スタイリスト設定を初期値で開始します", error);
+  }
+}
+
+function saveStylistSettings() {
+  localStorage.setItem(SETTINGS_KEY, JSON.stringify({
+    preferenceBalance: Number($("#preference-balance").value),
+    updatedAt: new Date().toISOString(),
+  }));
 }
 
 function createId() {
@@ -559,32 +593,52 @@ function harmonyScore(set, conditions) {
   return Math.round(clamp(score));
 }
 
-function buildPreferenceModel() {
+function feedbackContextWeight(entry, conditions) {
+  if (!conditions || !entry.conditions) return 1;
+  let weight = .65;
+  if (entry.conditions.occasion === conditions.occasion) weight += .15;
+  if (entry.conditions.mood === conditions.mood) weight += .15;
+  if (Math.abs(Number(entry.conditions.temperature) - Number(conditions.temperature)) <= 6) weight += .05;
+  return clamp(weight, .65, 1);
+}
+
+function feedbackRecencyWeight(entry) {
+  const createdAt = new Date(entry.createdAt).getTime();
+  if (!Number.isFinite(createdAt)) return .5;
+  const ageDays = Math.max(0, (Date.now() - createdAt) / 86400000);
+  return Math.pow(.5, ageDays / PREFERENCE_HALF_LIFE_DAYS);
+}
+
+function buildPreferenceModel(conditions = null) {
   const itemWeights = new Map();
   const featureWeights = new Map();
-  const effects = { like: { item: 4, feature: 2 }, worn: { item: 5, feature: 1.5 }, dislike: { item: -7, feature: -2.5 } };
+  const effects = { like: { item: 4, feature: 2 }, worn: { item: 3, feature: 1.25 }, dislike: { item: -7, feature: -2.5 } };
+  let effectiveFeedback = 0;
 
   feedback.forEach((entry) => {
     const effect = effects[entry.type];
     if (!effect) return;
+    const evidenceWeight = feedbackRecencyWeight(entry) * feedbackContextWeight(entry, conditions);
+    effectiveFeedback += evidenceWeight;
     (entry.itemIds || []).forEach((id) => {
-      itemWeights.set(id, (itemWeights.get(id) || 0) + effect.item);
+      itemWeights.set(id, (itemWeights.get(id) || 0) + effect.item * evidenceWeight);
       const item = items.find((candidate) => candidate.id === id);
       if (!item) return;
-      profileKeys(item).forEach((key) => featureWeights.set(key, (featureWeights.get(key) || 0) + effect.feature));
+      profileKeys(item).forEach((key) => featureWeights.set(key, (featureWeights.get(key) || 0) + effect.feature * evidenceWeight));
     });
   });
-  return { itemWeights, featureWeights };
+  const confidence = effectiveFeedback ? clamp(.3 + effectiveFeedback / 8, .3, 1) : 0;
+  return { itemWeights, featureWeights, effectiveFeedback, confidence };
 }
 
 function preferenceScore(set, model) {
-  if (!feedback.length) return 50;
+  if (!model.effectiveFeedback) return 50;
   const learnedValue = set.reduce((sum, item) => {
     const direct = model.itemWeights.get(item.id) || 0;
     const features = profileKeys(item).reduce((featureSum, key) => featureSum + (model.featureWeights.get(key) || 0), 0);
     return sum + direct + features;
   }, 0) / Math.max(1, set.length);
-  return Math.round(clamp(50 + learnedValue * 1.25));
+  return Math.round(clamp(50 + learnedValue * 1.25 * model.confidence));
 }
 
 function trendScore(set) {
@@ -603,7 +657,8 @@ function trendScore(set) {
   const hasClassic = profiles.some((profile) => ["classic", "minimal", "clean"].includes(profile.style));
   const hasExpression = profiles.some((profile) => profile.style === "trendy" || profile.statement >= 4);
   if (hasClassic && hasExpression) score += 10;
-  return Math.round(clamp(score));
+  const freshAdjustedScore = 50 + (score - 50) * trendFreshness.factor;
+  return Math.round(clamp(freshAdjustedScore));
 }
 
 function generateCandidates(conditions) {
@@ -628,7 +683,7 @@ function generateCandidates(conditions) {
   }
   if (!candidates.length) return [];
 
-  const model = buildPreferenceModel();
+  const model = buildPreferenceModel(conditions);
   const weights = decisionWeights(conditions.preferenceBalance);
 
   return candidates.map((set) => {
@@ -643,22 +698,42 @@ function generateCandidates(conditions) {
   }).sort((a, b) => b.score - a.score);
 }
 
+function isTooSimilar(candidate, selected) {
+  const signature = candidate.items.map((item) => item.id);
+  return selected.some((picked) => {
+    const overlap = signature.filter((id) => picked.items.some((item) => item.id === id)).length;
+    return overlap >= Math.min(signature.length, picked.items.length) - 1;
+  });
+}
+
 function selectDiverse(candidates) {
+  if (!candidates.length) return [];
   const selected = [];
-  for (const candidate of candidates) {
-    const signature = candidate.items.map((item) => item.id).sort();
-    const tooSimilar = selected.some((picked) => signature.filter((id) => picked.items.some((item) => item.id === id)).length >= Math.min(signature.length, picked.items.length) - 1);
-    if (!tooSimilar || selected.length === 0) selected.push(candidate);
-    if (selected.length === 3) break;
-  }
-  for (const candidate of candidates) {
-    if (selected.length === 3) break;
-    if (!selected.includes(candidate)) selected.push(candidate);
-  }
+  const selectedIds = new Set();
+  const choose = (role, scoreForRole, minimumPractical = 45) => {
+    const pool = candidates
+      .filter((candidate) => !selectedIds.has(candidate.id) && candidate.components.practical >= minimumPractical)
+      .sort((a, b) => scoreForRole(b) - scoreForRole(a));
+    const candidate = pool.find((option) => !isTooSimilar(option, selected)) || pool[0]
+      || candidates.find((option) => !selectedIds.has(option.id));
+    if (candidate) {
+      selected.push({ ...candidate, role });
+      selectedIds.add(candidate.id);
+    }
+  };
+
+  choose("balanced", (candidate) => candidate.score, 0);
+  choose(
+    feedback.length ? "personal" : "harmony",
+    (candidate) => feedback.length
+      ? candidate.components.preference * .65 + candidate.score * .25 + candidate.components.harmony * .1
+      : candidate.components.harmony * .65 + candidate.score * .35,
+  );
+  choose("trend", (candidate) => candidate.components.trend * .7 + candidate.score * .3, 55);
   return selected;
 }
 
-function outfitReason(outfit, index) {
+function outfitReason(outfit) {
   const { conditions, items: set, components } = outfit;
   const names = set.map((item) => item.name);
   const strongest = Object.entries(components).sort((a, b) => b[1] - a[1]).slice(0, 2).map(([key]) => ({
@@ -667,7 +742,14 @@ function outfitReason(outfit, index) {
     harmony: "色・柄・シルエットのまとまり",
     trend: `${trendProfile.season}の要素`,
   }[key]));
-  const lead = ["総合バランスが最も高い案です。", "同じ条件で雰囲気を変えた案です。", "少し新鮮さを足した案です。"][index];
+  const lead = {
+    balanced: "実用性・好み・相性・流行の総合バランスが最も高い案です。",
+    personal: "これまでの評価に近い、自分らしさを優先した案です。",
+    harmony: "好みの学習前でも取り入れやすい、まとまり重視の案です。",
+    trend: trendFreshness.factor >= .75
+      ? `${trendProfile.season}の要素を、無理なく試せる案です。`
+      : "トレンド情報の鮮度を考慮し、控えめに新鮮さを加えた案です。",
+  }[outfit.role] || "条件に合わせて選んだ案です。";
   return `${lead} ${names.slice(0, 2).join("と")}を軸に、${strongest.join("と")}を評価しました。`;
 }
 
@@ -683,7 +765,7 @@ function renderOutfits(outfits, conditions) {
     <div class="result-header"><div><p class="eyebrow">${conditions.temperature}℃・${labels.occasion[conditions.occasion]}</p><h2>今日の${outfits.length}つの提案</h2></div><span class="soft-badge">ハイブリッド判定</span></div>
     <div class="outfit-list">${outfits.map((outfit, index) => `
       <article class="outfit-card">
-        <div class="outfit-top"><div><span class="outfit-number">LOOK 0${index + 1}</span><h3>${["いちばんおすすめ", "安心の別案", "少し気分を変える"][index]}</h3></div><span class="score-ring">${outfit.score}</span></div>
+        <div class="outfit-top"><div><span class="outfit-number">LOOK 0${index + 1}</span><h3>${({ balanced: "いちばんおすすめ", personal: "あなたらしさ重視", harmony: "まとまり重視", trend: "今季をひとさじ" })[outfit.role] || "別の提案"}</h3></div><span class="score-ring">${outfit.score}</span></div>
         <div class="outfit-items">${outfit.items.map((item) => `<div class="outfit-piece"><div>${itemPhotoMarkup(item)}</div><p>${escapeHTML(item.name)}</p></div>`).join("")}</div>
         <div class="score-breakdown" aria-label="評価の内訳">
           <span><small>実用性</small><strong>${outfit.components.practical}</strong></span>
@@ -691,7 +773,7 @@ function renderOutfits(outfits, conditions) {
           <span><small>服同士の相性</small><strong>${outfit.components.harmony}</strong></span>
           <span><small>今季らしさ</small><strong>${outfit.components.trend}</strong></span>
         </div>
-        <p class="outfit-reason">${escapeHTML(outfitReason(outfit, index))}</p>
+        <p class="outfit-reason">${escapeHTML(outfitReason(outfit))}</p>
         <div class="feedback-row" data-outfit-id="${outfit.id}"><span>評価するほど、色・柄・形の好みを学習します</span><button data-feedback="like">♡ 好き</button><button data-feedback="dislike">合わない</button><button data-feedback="worn">着た</button></div>
       </article>`).join("")}</div>`;
   results.dataset.outfits = JSON.stringify(outfits.map((outfit) => ({ id: outfit.id, itemIds: outfit.items.map((item) => item.id), conditions })));
@@ -729,15 +811,21 @@ function renderLearningSummary() {
     return;
   }
   const model = buildPreferenceModel();
-  const favorites = [...model.featureWeights.entries()].filter(([, value]) => value > 0).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([key]) => featureLabel(key));
-  summary.innerHTML = `<strong>${feedback.length}回の評価を学習中</strong><span>${favorites.length ? `今の好み傾向：${favorites.map(escapeHTML).join("・")}` : "評価が増えると好みの傾向を表示します。"}</span>`;
+  const rankedFeatures = [...model.featureWeights.entries()].sort((a, b) => b[1] - a[1]);
+  const favorites = rankedFeatures.filter(([, value]) => value > 0).slice(0, 3).map(([key]) => featureLabel(key));
+  const avoided = rankedFeatures.filter(([, value]) => value < 0).slice(-2).reverse().map(([key]) => featureLabel(key));
+  const confidenceLabel = model.confidence >= .8 ? "高" : model.confidence >= .5 ? "中" : "学習中";
+  const tendency = favorites.length ? `好き：${favorites.map(escapeHTML).join("・")}` : "好きな傾向を確認中";
+  const avoidedText = avoided.length ? ` / 控えめ：${avoided.map(escapeHTML).join("・")}` : "";
+  summary.innerHTML = `<strong>${feedback.length}回の評価を学習中（確度：${confidenceLabel}）</strong><span>${tendency}${avoidedText}</span>`;
 }
 
 function renderTrendCard() {
   $("#trend-season").textContent = trendProfile.season;
   $("#trend-title").textContent = trendProfile.title;
   $("#trend-tags").innerHTML = trendProfile.tags.map((tag) => `<span>${escapeHTML(tag)}</span>`).join("");
-  $("#trend-updated").textContent = `更新 ${trendProfile.updatedAt}`;
+  const ageText = trendFreshness.ageDays === null ? "" : `・${trendFreshness.ageDays}日前`;
+  $("#trend-updated").textContent = `${trendFreshness.label} ${trendProfile.updatedAt}${ageText}`;
   const source = $("#trend-source");
   source.textContent = trendProfile.sourceLabel;
   if (/^https:\/\//.test(trendProfile.sourceUrl || "")) source.href = trendProfile.sourceUrl;
@@ -786,6 +874,7 @@ function bindEvents() {
   $("#status-filter").addEventListener("change", renderCloset);
   $("#temperature").addEventListener("input", (event) => $("#temperature-output").value = `${event.target.value}℃`);
   $("#preference-balance").addEventListener("input", updateWeightOutput);
+  $("#preference-balance").addEventListener("change", saveStylistSettings);
   $("#item-photo").addEventListener("change", async (event) => {
     const file = event.target.files[0];
     if (!file) return;
@@ -841,6 +930,7 @@ async function init() {
     await ensureSampleItems();
     await loadTrendProfile();
     [items, feedback] = await Promise.all([getAll("items"), getAll("feedback")]);
+    loadStylistSettings();
     bindEvents();
     renderAll();
   } catch (error) {

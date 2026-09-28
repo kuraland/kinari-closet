@@ -1,0 +1,56 @@
+# 追加意図: 公開トレンドキーワードを週次収集し、確認可能な更新PRとして提案する。処理日時: 2026-09-27 JST
+name: Trend refresh proposal
+
+on:
+  schedule:
+    - cron: "17 0 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: trend-refresh
+  cancel-in-progress: false
+
+jobs:
+  propose:
+    runs-on: ubuntu-latest
+    env:
+      BRANCH_NAME: automation/trend-refresh
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+      - name: Test trend conversion
+        run: node scripts/test-update-trends.mjs
+      - name: Collect public aggregate keywords
+        run: node scripts/update-trends.mjs --write
+      - name: Validate freshness
+        run: node scripts/check-trend-freshness.mjs
+      - name: Create or update review pull request
+        shell: bash
+        run: |
+          if git diff --quiet -- trends.json data/trend-snapshot.json; then
+            echo "No trend change detected."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -B "$BRANCH_NAME"
+          git add trends.json data/trend-snapshot.json
+          git commit -m "chore: refresh public trend signals"
+          git push --force-with-lease origin "$BRANCH_NAME"
+
+          if ! gh pr list --head "$BRANCH_NAME" --state open --json number --jq 'length > 0' | grep -q true; then
+            gh pr create \
+              --base "${{ github.event.repository.default_branch }}" \
+              --head "$BRANCH_NAME" \
+              --title "トレンド情報の週次更新" \
+              --body "WEARの公開トレンドキーワードを集計し、KINARIの推薦属性へ変換した更新案です。画像・投稿本文・ユーザー情報は収集していません。内容を確認してからマージしてください。"
+          fi
+

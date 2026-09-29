@@ -1,8 +1,17 @@
-/* 更新意図: ローカルファーストの操作感を保ちながら、Supabase認証と端末間同期を任意で追加。処理日時: 2026-09-29 JST */
+/* 更新意図: 女性向けサンプルを除外し、2026年秋冬のメンズトレンド7点へ安全に移行。処理日時: 2026-09-30 JST */
 const DB_NAME = "kinari-closet";
 const DB_VERSION = 1;
 const SETTINGS_KEY = "kinari-stylist-settings";
 const PREFERENCE_HALF_LIFE_DAYS = 120;
+const RETIRED_SAMPLE_IDS = new Set([
+  "sample-bottoms-04",
+  "sample-onepiece-01",
+  "sample-onepiece-02",
+  "sample-onepiece-03",
+  "sample-onepiece-04",
+  "sample-onepiece-05",
+  "sample-shoes-04",
+]);
 
 const labels = {
   category: { tops: "トップス", bottoms: "ボトムス", onepiece: "ワンピース", outer: "アウター", shoes: "靴", accessory: "小物" },
@@ -21,17 +30,17 @@ const colorHex = { white: "#f6f5ef", black: "#282a28", gray: "#92958f", navy: "#
 
 const DEFAULT_TREND_PROFILE = {
   season: "2026 秋冬",
-  title: "クラシックに、色とボリュームで変化を",
-  updatedAt: "2026-09-10",
+  title: "ブラウンとレッドでつくる、端正なレトロ・トラッド",
+  updatedAt: "2026-09-30",
   validUntil: "2026-11-30",
-  colors: ["purple", "pink", "red", "navy", "black"],
-  patterns: ["solid", "check", "floral"],
-  materials: ["knit", "wool", "leather"],
-  silhouettes: ["wide", "relaxed", "short", "long"],
-  styles: ["classic", "trendy"],
-  tags: ["強い色", "大胆なボリューム", "クラシックの更新", "質感のコントラスト"],
-  sourceLabel: "Vogue Fall 2026 trend report",
-  sourceUrl: "https://www.vogue.com/article/fall-winter-2026-fashion-trends",
+  colors: ["brown", "black", "gray", "red", "navy"],
+  patterns: ["solid", "check"],
+  materials: ["leather", "knit", "wool"],
+  silhouettes: ["slim", "wide", "regular", "short"],
+  styles: ["classic", "clean", "sporty"],
+  tags: ["モノトーン＆ブラウン", "深みのあるレッド", "チェック", "レザーとコーデュロイ"],
+  sourceLabel: "2026秋冬メンズ（UNITED ARROWS / Vogue / GQ / WEAR）",
+  sourceUrl: "https://store.united-arrows.co.jp/ua_columns/brand/bym/feature/article/men_autumn_outfits",
 };
 
 const SAMPLE_ITEMS = [
@@ -43,13 +52,13 @@ const SAMPLE_ITEMS = [
   { id: "sample-bottoms-01", name: "濃紺ストレートデニム", category: "bottoms", color: "navy", season: "all", warmth: 3, formality: 2, photo: "assets/samples/bottoms-01.jpg" },
   { id: "sample-bottoms-02", name: "ベージュのチノパン", category: "bottoms", color: "beige", season: "all", warmth: 2, formality: 3, photo: "assets/samples/bottoms-02.jpg" },
   { id: "sample-bottoms-03", name: "黒のテーパードパンツ", category: "bottoms", color: "black", season: "all", warmth: 2, formality: 4, photo: "assets/samples/bottoms-03.jpg" },
-  { id: "sample-bottoms-04", name: "オリーブのミディスカート", category: "bottoms", color: "green", season: "autumn", warmth: 2, formality: 3, photo: "assets/samples/bottoms-04.jpg" },
+  { id: "sample-trend-corduroy-bottoms-01", name: "チョコブラウンのコーデュロイパンツ", category: "bottoms", color: "brown", season: "autumn", warmth: 4, formality: 3, pattern: "solid", material: "cotton", silhouette: "wide", style: "classic", statement: 4, photo: "assets/samples/trend-corduroy-trousers-01.jpg", notes: "2026秋メンズ：太畝コーデュロイとブラウン" },
   { id: "sample-bottoms-05", name: "ブルーのワイドデニム", category: "bottoms", color: "blue", season: "all", warmth: 3, formality: 1, photo: "assets/samples/bottoms-05.jpg" },
-  { id: "sample-onepiece-01", name: "クリームのシャツワンピース", category: "onepiece", color: "white", season: "spring", warmth: 2, formality: 3, photo: "assets/samples/onepiece-01.jpg" },
-  { id: "sample-onepiece-02", name: "ネイビーのミディワンピース", category: "onepiece", color: "navy", season: "all", warmth: 2, formality: 4, photo: "assets/samples/onepiece-02.jpg" },
-  { id: "sample-onepiece-03", name: "テラコッタのカジュアルワンピース", category: "onepiece", color: "red", season: "summer", warmth: 1, formality: 2, photo: "assets/samples/onepiece-03.jpg" },
-  { id: "sample-onepiece-04", name: "黒のフォーマルワンピース", category: "onepiece", color: "black", season: "all", warmth: 3, formality: 5, photo: "assets/samples/onepiece-04.jpg" },
-  { id: "sample-onepiece-05", name: "セージグリーンのリネンワンピース", category: "onepiece", color: "green", season: "summer", warmth: 1, formality: 2, photo: "assets/samples/onepiece-05.jpg" },
+  { id: "sample-trend-burgundy-knit-01", name: "バーガンディのモックネックニット", category: "tops", color: "red", season: "autumn", warmth: 4, formality: 4, pattern: "solid", material: "knit", silhouette: "slim", style: "clean", statement: 4, photo: "assets/samples/trend-burgundy-knit-01.jpg", notes: "2026秋メンズ：深みのあるレッドと細身トップス" },
+  { id: "sample-trend-tartan-overshirt-01", name: "ネイビーのタータンチェックシャツ", category: "tops", color: "navy", season: "autumn", warmth: 3, formality: 2, pattern: "check", material: "wool", silhouette: "regular", style: "classic", statement: 4, photo: "assets/samples/trend-tartan-overshirt-01.jpg", notes: "2026秋メンズ：大きめチェックのトラッド" },
+  { id: "sample-trend-leather-coverall-01", name: "ダークブラウンのレザーカバーオール", category: "outer", color: "brown", season: "autumn", warmth: 4, formality: 3, pattern: "solid", material: "leather", silhouette: "regular", style: "classic", statement: 4, photo: "assets/samples/trend-leather-coverall-01.jpg", notes: "2026秋メンズ：ブラウンレザーのラギッドラグジュアリー" },
+  { id: "sample-trend-retro-windbreaker-01", name: "バーガンディのレトロウインドブレーカー", category: "outer", color: "red", season: "autumn", warmth: 3, formality: 1, pattern: "graphic", material: "synthetic", silhouette: "short", style: "sporty", statement: 5, photo: "assets/samples/trend-retro-windbreaker-01.jpg", notes: "2026秋メンズ：色とボリュームを効かせたレトロスポーツ" },
+  { id: "sample-trend-navy-parka-01", name: "ネイビーのテクニカルパーカ", category: "outer", color: "navy", season: "winter", warmth: 5, formality: 3, pattern: "solid", material: "synthetic", silhouette: "long", style: "sporty", statement: 3, photo: "assets/samples/trend-navy-parka-01.jpg", notes: "2026秋冬メンズ：端正な着こなしに重ねる実用パーカ" },
   { id: "sample-outer-01", name: "ベージュのトレンチコート", category: "outer", color: "beige", season: "spring", warmth: 3, formality: 4, photo: "assets/samples/outer-01.jpg" },
   { id: "sample-outer-02", name: "ブルーのデニムジャケット", category: "outer", color: "blue", season: "spring", warmth: 3, formality: 1, photo: "assets/samples/outer-02.jpg" },
   { id: "sample-outer-03", name: "黒のテーラードジャケット", category: "outer", color: "black", season: "all", warmth: 3, formality: 5, photo: "assets/samples/outer-03.jpg" },
@@ -58,7 +67,7 @@ const SAMPLE_ITEMS = [
   { id: "sample-shoes-01", name: "白のローカットスニーカー", category: "shoes", color: "white", season: "all", warmth: 2, formality: 1, photo: "assets/samples/shoes-01.jpg" },
   { id: "sample-shoes-02", name: "黒のレザーローファー", category: "shoes", color: "black", season: "all", warmth: 2, formality: 4, photo: "assets/samples/shoes-02.jpg" },
   { id: "sample-shoes-03", name: "ブラウンのアンクルブーツ", category: "shoes", color: "brown", season: "winter", warmth: 4, formality: 3, photo: "assets/samples/shoes-03.jpg" },
-  { id: "sample-shoes-04", name: "ベージュのフラットサンダル", category: "shoes", color: "beige", season: "summer", warmth: 1, formality: 2, photo: "assets/samples/shoes-04.jpg" },
+  { id: "sample-trend-brown-derby-01", name: "ダークブラウンのレザーダービー", category: "shoes", color: "brown", season: "all", warmth: 3, formality: 4, pattern: "solid", material: "leather", silhouette: "regular", style: "classic", statement: 3, photo: "assets/samples/trend-brown-derby-01.jpg", notes: "2026秋メンズ：トラッドにもスポーツミックスにも使える革靴" },
   { id: "sample-shoes-05", name: "ネイビーのランニングシューズ", category: "shoes", color: "navy", season: "all", warmth: 2, formality: 1, photo: "assets/samples/shoes-05.jpg", notes: "よく歩く日に向くサンプル" },
   { id: "sample-accessory-01", name: "ブラウンのレザートート", category: "accessory", color: "brown", season: "all", warmth: 2, formality: 3, photo: "assets/samples/accessory-01.jpg" },
   { id: "sample-accessory-02", name: "黒のショルダーバッグ", category: "accessory", color: "black", season: "all", warmth: 2, formality: 4, photo: "assets/samples/accessory-02.jpg" },
@@ -106,6 +115,13 @@ function storeRequest(store, mode, action, value) {
 
 const getAll = (store) => storeRequest(store, "readonly", "getAll");
 const put = (store, value) => storeRequest(store, "readwrite", "put", value);
+const remove = (store, key) => storeRequest(store, "readwrite", "delete", key);
+
+async function retireLegacyWomenSamples() {
+  const savedItems = await getAll("items");
+  const legacySamples = savedItems.filter((item) => item.isSample && RETIRED_SAMPLE_IDS.has(item.id));
+  for (const item of legacySamples) await remove("items", item.id);
+}
 
 async function ensureSampleItems() {
   const savedItems = await getAll("items");
@@ -1094,6 +1110,7 @@ async function init() {
   $("#today-label").textContent = formatDate(new Date());
   try {
     db = await openDB();
+    await retireLegacyWomenSamples();
     await ensureSampleItems();
     await loadTrendProfile();
     [items, feedback] = await Promise.all([getAll("items"), getAll("feedback")]);

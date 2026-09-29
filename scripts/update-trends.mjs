@@ -1,6 +1,6 @@
 /**
- * 追加意図: WEARの公開トレンドキーワードを個人情報なしで週次集計し、推薦用の更新案を生成する。
- * 処理日時: 2026-09-27 JST
+ * 更新意図: WEARの総合・メンズ公開キーワードだけを週次集計し、メンズ向け推薦案を生成する。
+ * 処理日時: 2026-09-30 JST
  */
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -10,8 +10,7 @@ const SNAPSHOT_PATH = new URL("../data/trend-snapshot.json", import.meta.url);
 
 export const SOURCES = [
   { id: "all", label: "総合", url: "https://wear.jp/keyword/", weight: 1.15 },
-  { id: "men", label: "メンズ", url: "https://wear.jp/men-keyword/", weight: 1 },
-  { id: "women", label: "レディース", url: "https://wear.jp/women-keyword/", weight: 1 }
+  { id: "men", label: "メンズ", url: "https://wear.jp/men-keyword/", weight: 1.25 }
 ];
 
 const TAXONOMY = {
@@ -216,8 +215,8 @@ export function buildTrendUpdate(previousData, sourceResults, now = new Date()) 
         validUntil: addDays(today, 42),
         ...generated,
         tags: tags.length ? tags : previous.tags,
-        sourceLabel: "WEARトレンドキーワード（公開集計）",
-        sourceUrl: "https://wear.jp/keyword/",
+        sourceLabel: "WEARトレンドキーワード（総合・メンズ公開集計）",
+        sourceUrl: "https://wear.jp/men-keyword/",
         automation: {
           mode: "wear-public-keywords",
           confidence: Number(confidence.toFixed(2)),

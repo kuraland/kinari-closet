@@ -1,9 +1,11 @@
 /**
- * 追加意図: 外部サイトへ接続せず、トレンド抽出・分類・安全弁を継続検証する。
- * 処理日時: 2026-09-27 JST
+ * 更新意図: メンズ限定の取得元、トレンド抽出・分類・安全弁を外部接続なしで継続検証する。
+ * 処理日時: 2026-09-30 JST
  */
 import assert from "node:assert/strict";
 import { buildTrendUpdate, extractTrendKeywords, mapKeyword, SOURCES } from "./update-trends.mjs";
+
+assert.deepEqual(SOURCES.map((source) => source.id), ["all", "men"]);
 
 const page = `
   <html><body>
@@ -43,4 +45,3 @@ assert.match(result.snapshot.privacy, /ユーザー名/);
 assert.throws(() => buildTrendUpdate(prior, [{ ...SOURCES[0], keywords }]), /2種類以上/);
 
 console.log("trend updater: all tests passed");
-

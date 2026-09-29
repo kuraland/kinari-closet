@@ -14,13 +14,15 @@
 
 > 更新意図: WEARの公開トレンドキーワードを個人情報なしで週次集計し、確認可能な更新PRを自動作成する仕組みを追加。処理日時: 2026-09-27 JST
 
+> 更新意図: IndexedDBを残したまま、Supabase Auth・PostgreSQL・Storageを使う任意の端末間同期基盤を追加。処理日時: 2026-09-29 JST
+
 服の写真と属性をブラウザ内に保存し、天気・気温・予定・気分に応じたコーデを3案提案するローカルファーストのプロトタイプです。
 
 ## 公開版
 
 公開URL: https://kuraland.github.io/kinari-closet/
 
-GitHub Pagesで公開しています。登録した写真や服の情報はGitHubには送信されず、アクセスした端末のブラウザ内に保存されます。そのため、パソコン版とスマートフォン版の登録内容は自動同期されません。
+GitHub Pagesで公開しています。クラウド未設定または未ログイン時は、登録した写真や服の情報はGitHubへ送信されず、アクセスした端末のブラウザ内に保存されます。Supabaseを設定してログインすると、自分のスマートフォンとパソコンの間で同期できます。
 
 > 更新意図: 公開完了後の正式URLを記録。処理日時: 2026-09-05 09:39 JST
 
@@ -60,7 +62,27 @@ python3 -m http.server 4173
 
 ## 保存とプライバシー
 
-服の写真・属性・評価はIndexedDBを使い、利用中のブラウザ内だけに保存します。サーバーへのアップロードはありません。同じ端末でも、別ブラウザやプライベートブラウズとはデータを共有しません。ブラウザのサイトデータを消すと登録内容も失われるため、次段階ではエクスポート／復元を追加する想定です。
+服の写真・属性・評価は最初にIndexedDBへ保存するため、通信が一時的に切れても端末内で利用できます。Supabaseへログインした場合だけ、自分のユーザーID配下へ同期します。服データ・評価・設定はRow Level Securityで本人だけが読み書きでき、写真は非公開の`garment-images`バケットへ保存します。公開サイトへ置くのはRLS前提のanon keyだけで、管理者権限を持つ`service_role` keyは置きません。
+
+## Supabaseの初期設定
+
+1. Supabaseで無料プロジェクトを1つ作成します。
+2. SQL Editorで`supabase/migrations/202609290001_initial_schema.sql`を実行します。
+3. Project SettingsのAPI画面からProject URLと公開用Publishable key（旧形式ではanon key）を確認します。
+4. `supabase-config.js`へ次のように設定します。プロパティ名は互換性のため`anonKey`ですが、Publishable keyもそのまま使えます。
+
+```js
+window.KINARI_SUPABASE_CONFIG = Object.freeze({
+  url: "https://YOUR_PROJECT.supabase.co",
+  anonKey: "YOUR_PUBLIC_ANON_KEY",
+});
+```
+
+5. AuthenticationのURL Configurationで、公開URL`https://kuraland.github.io/kinari-closet/`をSite URLとRedirect URLへ追加します。
+
+ログイン後の同期は最終更新日時によるLast Write Winsです。端末にしかない服はクラウドへ追加し、クラウドにしかない服は端末へ復元します。サンプル30点は各端末に同梱済みなので同期対象外です。アーカイブを削除の代わりに使い、別端末から意図せず復活することを防ぎます。
+
+変換処理のテストは`node scripts/test-cloud-sync.cjs`で実行できます。
 
 ## 現時点の「AI」の範囲
 

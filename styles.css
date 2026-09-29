@@ -1,4 +1,4 @@
-/* 更新意図: 既存の静かなデザインを保ち、好み学習・トレンド・採点内訳とサンプル復元操作を読みやすく表示。処理日時: 2026-09-27 JST */
+/* 更新意図: 既存の静かなデザインを保ち、クラウド同期の状態とログイン操作をスマホでも明確に表示。処理日時: 2026-09-29 JST */
 :root {
   --ink: #252923;
   --muted: #73766e;
@@ -40,6 +40,12 @@ button { color: inherit; }
 .privacy-note > span { color: var(--sage); }
 .privacy-note strong { font-size: 11px; }
 .privacy-note p { margin: 4px 0 0; color: var(--muted); font-size: 9px; line-height: 1.5; }
+.cloud-status-card { width: 100%; border: 0; color: inherit; text-align: left; cursor: pointer; }
+.cloud-status-card:hover { background: var(--surface); box-shadow: 0 6px 24px rgba(64, 58, 46, .06); }
+.cloud-status-card[data-state="syncing"] > span { animation: cloud-pulse 1.2s ease infinite; }
+.cloud-status-card[data-state="synced"] > span { color: #3d7955; }
+.cloud-status-card[data-state="error"] > span { color: #a45d49; }
+@keyframes cloud-pulse { 50% { opacity: .35; } }
 
 .main-content { grid-column: 2; min-width: 0; }
 .topbar { height: 82px; padding: 0 clamp(24px, 5vw, 70px); display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--line); }
@@ -201,6 +207,14 @@ input[type="range"] { width: 100%; accent-color: var(--sage); }
 .field input:focus, .field select:focus, .field textarea:focus { border-color: #9caa98; box-shadow: 0 0 0 3px var(--sage-soft); }
 .field textarea { resize: vertical; }
 .dialog-actions { display: flex; justify-content: end; gap: 9px; margin-top: 25px; padding-top: 20px; border-top: 1px solid var(--line); }
+.cloud-dialog { width: min(520px, calc(100% - 24px)); }
+.cloud-panel { display: grid; gap: 14px; padding: 18px; border: 1px solid var(--line); border-radius: 14px; background: #f8f5ee; }
+.cloud-panel[hidden] { display: none; }
+.cloud-panel > strong { font-size: 15px; }
+.cloud-panel > p { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.7; }
+.cloud-panel code { word-break: break-word; }
+.cloud-message { min-height: 18px; color: var(--sage-dark) !important; }
+.cloud-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 9px; }
 .toast { position: fixed; right: 24px; bottom: 24px; z-index: 50; max-width: 320px; padding: 13px 17px; background: #2e352c; color: white; border-radius: 10px; box-shadow: var(--shadow); font-size: 11px; opacity: 0; transform: translateY(12px); pointer-events: none; transition: .24s ease; }
 .toast.is-visible { opacity: 1; transform: translateY(0); }
 
@@ -235,6 +249,7 @@ input[type="range"] { width: 100%; accent-color: var(--sage); }
   .fields-grid { grid-template-columns: 1fr; }
   .field.full { grid-column: auto; }
   .dialog-card { padding: 22px 18px; }
+  .cloud-actions { display: grid; grid-template-columns: 1fr; }
   .outfit-items { grid-template-columns: repeat(3, 1fr); }
   .score-breakdown { grid-template-columns: repeat(2, 1fr); }
   .weight-grid { grid-template-columns: repeat(2, 1fr); }

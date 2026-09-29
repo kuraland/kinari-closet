@@ -15,10 +15,10 @@
       href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Noto+Sans+JP:wght@400;500;600;700&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="styles.css?v=6" />
+    <link rel="stylesheet" href="styles.css?v=7" />
   </head>
   <body>
-    <!-- 更新意図: 最近の評価と利用場面を重視する好み学習、役割別の3提案、トレンド鮮度表示へ拡張。処理日時: 2026-09-27 JST -->
+    <!-- 更新意図: 端末内保存を維持しつつ、任意ログインによるSupabase端末間同期を追加。処理日時: 2026-09-29 JST -->
     <div class="app-shell">
       <aside class="sidebar" aria-label="メインナビゲーション">
         <a class="brand" href="#home" aria-label="KINARI ホーム">
@@ -41,13 +41,13 @@
           </button>
         </nav>
 
-        <div class="privacy-note">
+        <button class="privacy-note cloud-status-card" id="cloud-status" data-state="local" data-open-cloud-dialog type="button">
           <span aria-hidden="true">◎</span>
           <div>
-            <strong>写真はこの端末だけ</strong>
-            <p>登録データはブラウザ内に保存されます。</p>
+            <strong id="cloud-status-label">この端末だけ</strong>
+            <p id="cloud-status-detail">Supabaseを設定すると端末間で共有できます。</p>
           </div>
-        </div>
+        </button>
       </aside>
 
       <main class="main-content">
@@ -330,7 +330,47 @@
       </form>
     </dialog>
 
+    <dialog class="item-dialog cloud-dialog" id="cloud-dialog">
+      <div class="dialog-card">
+        <div class="dialog-heading">
+          <div>
+            <p class="eyebrow">CLOUD SYNC</p>
+            <h2>スマホとPCで共有</h2>
+          </div>
+          <button class="icon-button" type="button" data-close-cloud-dialog aria-label="閉じる">×</button>
+        </div>
+
+        <section class="cloud-panel" id="cloud-config-panel">
+          <strong>クラウドはまだ未設定です</strong>
+          <p><code>supabase-config.js</code>へProject URLと公開用anon keyを設定すると利用できます。未設定の間も、データはこれまでどおり端末内に保存されます。</p>
+        </section>
+
+        <section class="cloud-panel" id="cloud-auth-panel" hidden>
+          <p>初回は無料アカウントを作成してください。ログインすると、この端末にある自分の服と評価履歴が同期されます。</p>
+          <label class="field"><span>メールアドレス</span><input id="cloud-email" type="email" autocomplete="email" placeholder="you@example.com" /></label>
+          <label class="field"><span>パスワード（8文字以上）</span><input id="cloud-password" type="password" minlength="8" autocomplete="current-password" /></label>
+          <p class="cloud-message" id="cloud-message" role="status"></p>
+          <div class="cloud-actions">
+            <button class="secondary-button" id="cloud-sign-up" type="button">無料で同期を始める</button>
+            <button class="primary-button" id="cloud-sign-in" type="button">ログイン</button>
+          </div>
+        </section>
+
+        <section class="cloud-panel" id="cloud-session-panel" hidden>
+          <span class="soft-badge">同期中のアカウント</span>
+          <strong id="cloud-user-email"></strong>
+          <p>服の属性・写真・評価履歴・おすすめ設定を同期します。サンプル30点は各端末に同梱されているため、クラウドへ重複保存しません。</p>
+          <div class="cloud-actions">
+            <button class="secondary-button" id="cloud-sign-out" type="button">ログアウト</button>
+            <button class="primary-button" id="cloud-sync-now" type="button">今すぐ同期</button>
+          </div>
+        </section>
+      </div>
+    </dialog>
+
     <div class="toast" id="toast" role="status"></div>
-    <script src="app.js?v=6"></script>
+    <script src="supabase-config.js?v=1"></script>
+    <script src="cloud-sync.js?v=1"></script>
+    <script src="app.js?v=7"></script>
   </body>
 </html>

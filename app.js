@@ -1,4 +1,4 @@
-/* 更新意図: 好み学習へ時間減衰と利用場面の近さを加え、3案を総合・好み・トレンドの役割別に選び、古いトレンドの影響を自動で弱める。処理日時: 2026-09-27 JST */
+/* 更新意図: ローカルファーストの操作感を保ちながら、Supabase認証と端末間同期を任意で追加。処理日時: 2026-09-29 JST */
 const DB_NAME = "kinari-closet";
 const DB_VERSION = 1;
 const SETTINGS_KEY = "kinari-stylist-settings";
@@ -75,6 +75,9 @@ let trendFreshness = { factor: 1, label: "最新", ageDays: 0 };
 let currentPhoto = null;
 let currentPhotoUrl = null;
 let toastTimer;
+let cloudUser = null;
+let cloudSyncPromise = null;
+let cloudSyncTimer = null;
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
@@ -157,6 +160,7 @@ async function restoreSampleItems() {
   $("#status-filter").value = "ready";
   renderAll();
   switchView("closet");
+  queueCloudSync();
   const detail = addedCount && restoredCount
     ? `（新規${addedCount}点・復元${restoredCount}点）`
     : addedCount ? `（新規${addedCount}点）` : `（復元${restoredCount}点）`;
@@ -187,22 +191,31 @@ function getTrendFreshness(profile) {
   return { factor: .45, label: "情報が古いため影響を縮小", ageDays };
 }
 
-function loadStylistSettings() {
+function readStylistSettings() {
   try {
-    const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}");
-    if (Number.isFinite(Number(saved.preferenceBalance))) {
-      $("#preference-balance").value = String(clamp(Number(saved.preferenceBalance)));
-    }
+    return JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}");
   } catch (error) {
-    console.info("スタイリスト設定を初期値で開始します", error);
+    console.info("スタイリスト設定を読み込めませんでした", error);
+    return {};
   }
 }
 
+function loadStylistSettings(settings = readStylistSettings()) {
+  if (Number.isFinite(Number(settings.preferenceBalance))) {
+    $("#preference-balance").value = String(clamp(Number(settings.preferenceBalance)));
+  }
+  if (typeof settings.avoidRecent === "boolean") $("#avoid-recent").checked = settings.avoidRecent;
+}
+
 function saveStylistSettings() {
-  localStorage.setItem(SETTINGS_KEY, JSON.stringify({
+  const settings = {
     preferenceBalance: Number($("#preference-balance").value),
+    avoidRecent: $("#avoid-recent").checked,
     updatedAt: new Date().toISOString(),
-  }));
+  };
+  localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+  queueCloudSync();
+  return settings;
 }
 
 function createId() {
@@ -283,6 +296,138 @@ function showToast(message) {
   toast.classList.add("is-visible");
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => toast.classList.remove("is-visible"), 2600);
+}
+
+function setCloudState(state, detail = "") {
+  const button = $("#cloud-status");
+  const label = $("#cloud-status-label");
+  const description = $("#cloud-status-detail");
+  if (!button || !label || !description) return;
+  button.dataset.state = state;
+  const stateLabels = {
+    local: "この端末だけ",
+    signedOut: "クラウド同期OFF",
+    syncing: "同期しています…",
+    synced: "クラウド同期ON",
+    error: "同期を確認",
+  };
+  label.textContent = stateLabels[state] || stateLabels.local;
+  description.textContent = detail || ({
+    local: "Supabaseを設定すると端末間で共有できます。",
+    signedOut: "ログインするとスマホとPCで共有できます。",
+    syncing: "端末内のデータはそのまま利用できます。",
+    synced: cloudUser?.email || "最新の状態です。",
+    error: "端末内には保存されています。",
+  })[state];
+}
+
+function renderCloudDialog() {
+  const configured = Boolean(window.KinariCloud?.isConfigured());
+  $("#cloud-config-panel").hidden = configured;
+  $("#cloud-auth-panel").hidden = !configured || Boolean(cloudUser);
+  $("#cloud-session-panel").hidden = !configured || !cloudUser;
+  $("#cloud-user-email").textContent = cloudUser?.email || "";
+  if (!configured) setCloudState("local");
+  else if (!cloudUser) setCloudState("signedOut");
+}
+
+async function writeCloudResultToLocal(result) {
+  for (const item of result.items) await put("items", item);
+  for (const entry of result.feedback) await put("feedback", entry);
+  localStorage.setItem(SETTINGS_KEY, JSON.stringify(result.settings || {}));
+  [items, feedback] = await Promise.all([getAll("items"), getAll("feedback")]);
+  loadStylistSettings(result.settings);
+  renderAll();
+}
+
+async function syncCloudData({ announce = false } = {}) {
+  if (!cloudUser || !window.KinariCloud?.isConfigured()) return null;
+  if (cloudSyncPromise) return cloudSyncPromise;
+  setCloudState("syncing");
+  $("#cloud-sync-now").disabled = true;
+  cloudSyncPromise = window.KinariCloud.syncAll({
+    items,
+    feedback,
+    settings: {
+      preferenceBalance: Number($("#preference-balance").value),
+      avoidRecent: $("#avoid-recent").checked,
+      updatedAt: readStylistSettings().updatedAt || new Date(0).toISOString(),
+    },
+  }).then(async (result) => {
+    await writeCloudResultToLocal(result);
+    setCloudState("synced", `${cloudUser.email}・${new Intl.DateTimeFormat("ja-JP", { hour: "2-digit", minute: "2-digit" }).format(new Date(result.syncedAt))} 同期`);
+    if (announce) showToast("クラウドと同期しました");
+    return result;
+  }).catch((error) => {
+    console.error("クラウド同期に失敗しました", error);
+    setCloudState("error", error.message);
+    if (announce) showToast("同期できませんでした。端末内には保存されています");
+    return null;
+  }).finally(() => {
+    cloudSyncPromise = null;
+    $("#cloud-sync-now").disabled = false;
+  });
+  return cloudSyncPromise;
+}
+
+function queueCloudSync() {
+  if (!cloudUser) return;
+  clearTimeout(cloudSyncTimer);
+  cloudSyncTimer = setTimeout(() => syncCloudData(), 700);
+}
+
+async function initializeCloud() {
+  if (!window.KinariCloud) {
+    setCloudState("local", "同期モジュールを読み込めませんでした。");
+    return;
+  }
+  renderCloudDialog();
+  if (!window.KinariCloud.isConfigured()) return;
+  try {
+    const state = await window.KinariCloud.init((_event, user) => {
+      cloudUser = user;
+      renderCloudDialog();
+    });
+    cloudUser = state.user;
+    renderCloudDialog();
+    if (cloudUser) await syncCloudData();
+  } catch (error) {
+    console.error("クラウド同期を初期化できません", error);
+    setCloudState("error", "接続設定を確認してください。");
+  }
+}
+
+async function handleCloudAuth(action) {
+  const email = $("#cloud-email").value.trim();
+  const password = $("#cloud-password").value;
+  const message = $("#cloud-message");
+  if (!email || password.length < 8) {
+    message.textContent = "メールアドレスと8文字以上のパスワードを入力してください。";
+    return;
+  }
+  const buttons = $$("button", $("#cloud-auth-panel"));
+  buttons.forEach((button) => button.disabled = true);
+  message.textContent = action === "signup" ? "アカウントを作成しています…" : "ログインしています…";
+  try {
+    if (action === "signup") {
+      const result = await window.KinariCloud.signUp(email, password);
+      if (result.needsEmailConfirmation) {
+        message.textContent = "確認メールを送りました。メール内のリンクを開いてからログインしてください。";
+        return;
+      }
+      cloudUser = result.user;
+    } else {
+      cloudUser = await window.KinariCloud.signIn(email, password);
+    }
+    renderCloudDialog();
+    await syncCloudData({ announce: true });
+    $("#cloud-password").value = "";
+  } catch (error) {
+    console.error(error);
+    message.textContent = error.message;
+  } finally {
+    buttons.forEach((button) => button.disabled = false);
+  }
 }
 
 function switchView(view) {
@@ -433,6 +578,7 @@ async function saveItem(event) {
     items = await getAll("items");
     $("#item-dialog").close();
     renderAll();
+    queueCloudSync();
     showToast(existing ? "服の情報を更新しました" : "クローゼットに追加しました");
   } catch (error) {
     console.error("服の保存に失敗しました", error);
@@ -452,6 +598,7 @@ async function archiveItem(id) {
   await put("items", item);
   items = await getAll("items");
   renderAll();
+  queueCloudSync();
   showToast("削除せず、アーカイブへ移しました");
 }
 
@@ -464,6 +611,7 @@ async function restoreItem(id) {
   await put("items", item);
   items = await getAll("items");
   renderAll();
+  queueCloudSync();
   showToast("クローゼットへ戻しました");
 }
 
@@ -795,6 +943,7 @@ async function saveFeedback(button) {
   $$('button', row).forEach((node) => node.classList.toggle("is-selected", node === button));
   renderStats();
   renderLearningSummary();
+  queueCloudSync();
   showToast(entry.type === "worn" ? "着用履歴に記録しました" : "好みとして学習しました");
 }
 
@@ -860,6 +1009,8 @@ function bindEvents() {
     const restoreSamples = event.target.closest("[data-restore-samples]");
     const rating = event.target.closest("[data-feedback]");
     const closeDialog = event.target.closest("[data-close-item-dialog]");
+    const openCloud = event.target.closest("[data-open-cloud-dialog]");
+    const closeCloud = event.target.closest("[data-close-cloud-dialog]");
     if (opener) openItemDialog();
     if (edit) openItemDialog(items.find((item) => item.id === edit.dataset.editItem));
     if (archive) archiveItem(archive.dataset.archiveItem);
@@ -867,6 +1018,8 @@ function bindEvents() {
     if (restoreSamples) restoreSampleItems();
     if (rating) saveFeedback(rating);
     if (closeDialog) $("#item-dialog").close();
+    if (openCloud) { renderCloudDialog(); $("#cloud-dialog").showModal(); }
+    if (closeCloud) $("#cloud-dialog").close();
   });
   $("#mobile-menu").addEventListener("click", () => $(".sidebar").classList.toggle("is-open"));
   $("#closet-search").addEventListener("input", renderCloset);
@@ -875,6 +1028,20 @@ function bindEvents() {
   $("#temperature").addEventListener("input", (event) => $("#temperature-output").value = `${event.target.value}℃`);
   $("#preference-balance").addEventListener("input", updateWeightOutput);
   $("#preference-balance").addEventListener("change", saveStylistSettings);
+  $("#avoid-recent").addEventListener("change", saveStylistSettings);
+  $("#cloud-sign-in").addEventListener("click", () => handleCloudAuth("signin"));
+  $("#cloud-sign-up").addEventListener("click", () => handleCloudAuth("signup"));
+  $("#cloud-sync-now").addEventListener("click", () => syncCloudData({ announce: true }));
+  $("#cloud-sign-out").addEventListener("click", async () => {
+    try {
+      await window.KinariCloud.signOut();
+      cloudUser = null;
+      renderCloudDialog();
+      showToast("ログアウトしました。端末内のデータは残っています");
+    } catch (error) {
+      showToast(error.message);
+    }
+  });
   $("#item-photo").addEventListener("change", async (event) => {
     const file = event.target.files[0];
     if (!file) return;
@@ -933,6 +1100,7 @@ async function init() {
     loadStylistSettings();
     bindEvents();
     renderAll();
+    await initializeCloud();
   } catch (error) {
     console.error(error);
     showToast("ブラウザ内の保存領域を開けませんでした");

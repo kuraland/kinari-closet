@@ -1,0 +1,214 @@
+{
+  "collectedAt": "2026-09-29T04:13:02.489Z",
+  "privacy": "公開キーワードのみ。画像・投稿本文・ユーザー名・プロフィールは収集しない。",
+  "sources": [
+    {
+      "id": "all",
+      "label": "総合",
+      "url": "https://wear.jp/keyword/",
+      "keywords": [
+        "秋服",
+        "スウェットパンツ コーデ",
+        "ディズニーコーデ",
+        "シアートップス",
+        "Y2K ファッション",
+        "GAP パーカー",
+        "リムレス メガネ",
+        "カジュアルコーデ",
+        "スウェットコーデ",
+        "フェス 服装",
+        "デニムセットアップ",
+        "ナポレオンジャケット",
+        "ナップサック NIKE",
+        "SALOMON スニーカー",
+        "バンダナ おしゃれ",
+        "モノトーンコーデ",
+        "バミューダパンツってダサい…？着こなしのコツとお手本コーデ",
+        "ワイドパンツの流行りはいつまで？トレンドの傾向とおしゃれなお手本コーデ",
+        "カプリパンツってダサい？どう着るのがおしゃれ？お手本と着こなしのコツ",
+        "ドット柄の流行りはいつまで？トレンドの傾向とお手本コーデ"
+      ]
+    },
+    {
+      "id": "men",
+      "label": "メンズ",
+      "url": "https://wear.jp/men-keyword/",
+      "keywords": [
+        "秋服",
+        "スウェットパンツ コーデ",
+        "ディズニーコーデ",
+        "Y2K ファッション",
+        "GAP パーカー",
+        "リムレス メガネ",
+        "CLEL",
+        "カジュアルコーデ",
+        "フェス 服装",
+        "デニムセットアップ",
+        "ノームコア メンズ",
+        "ナップサック NIKE",
+        "SALOMON スニーカー",
+        "バンダナ おしゃれ",
+        "モノトーンコーデ",
+        "ARC'TERYX",
+        "タックイン メンズ",
+        "きれいめコーデ",
+        "WYM LIDNM",
+        "GU"
+      ]
+    },
+    {
+      "id": "women",
+      "label": "レディース",
+      "url": "https://wear.jp/women-keyword/",
+      "keywords": [
+        "秋服",
+        "ディズニーコーデ",
+        "シアートップス",
+        "Y2K ファッション",
+        "GAP パーカー",
+        "リムレス メガネ",
+        "GRL",
+        "カジュアルコーデ",
+        "キャミワンピ",
+        "フェス 服装",
+        "デニムセットアップ",
+        "Spick & Span",
+        "ナポレオンジャケット",
+        "ナップサック NIKE",
+        "SALOMON スニーカー",
+        "レースキャミソール コーデ",
+        "デニムワンピース",
+        "バンダナ おしゃれ",
+        "モノトーンコーデ",
+        "GU"
+      ]
+    }
+  ],
+  "acceptedSignals": [
+    {
+      "category": "styles",
+      "value": "trendy",
+      "score": 5.685,
+      "sourceCount": 3,
+      "keywords": [
+        "シアートップス",
+        "Y2K ファッション",
+        "ワイドパンツの流行りはいつまで？トレンドの傾向とおしゃれなお手本コーデ",
+        "ドット柄の流行りはいつまで？トレンドの傾向とお手本コーデ"
+      ]
+    },
+    {
+      "category": "styles",
+      "value": "casual",
+      "score": 4.653,
+      "sourceCount": 3,
+      "keywords": [
+        "カジュアルコーデ",
+        "フェス 服装"
+      ]
+    },
+    {
+      "category": "materials",
+      "value": "knit",
+      "score": 2.922,
+      "sourceCount": 2,
+      "keywords": [
+        "スウェットパンツ コーデ",
+        "スウェットコーデ"
+      ]
+    },
+    {
+      "category": "colors",
+      "value": "blue",
+      "score": 2.6,
+      "sourceCount": 3,
+      "keywords": [
+        "デニムセットアップ",
+        "デニムワンピース"
+      ]
+    },
+    {
+      "category": "materials",
+      "value": "denim",
+      "score": 2.6,
+      "sourceCount": 3,
+      "keywords": [
+        "デニムセットアップ",
+        "デニムワンピース"
+      ]
+    },
+    {
+      "category": "styles",
+      "value": "minimal",
+      "score": 2.175,
+      "sourceCount": 3,
+      "keywords": [
+        "モノトーンコーデ",
+        "ノームコア メンズ"
+      ]
+    },
+    {
+      "category": "materials",
+      "value": "synthetic",
+      "score": 1.968,
+      "sourceCount": 2,
+      "keywords": [
+        "シアートップス"
+      ]
+    },
+    {
+      "category": "styles",
+      "value": "sporty",
+      "score": 1.785,
+      "sourceCount": 3,
+      "keywords": [
+        "SALOMON スニーカー"
+      ]
+    },
+    {
+      "category": "colors",
+      "value": "black",
+      "score": 1.508,
+      "sourceCount": 3,
+      "keywords": [
+        "モノトーンコーデ"
+      ]
+    },
+    {
+      "category": "colors",
+      "value": "white",
+      "score": 1.508,
+      "sourceCount": 3,
+      "keywords": [
+        "モノトーンコーデ"
+      ]
+    },
+    {
+      "category": "colors",
+      "value": "gray",
+      "score": 1.508,
+      "sourceCount": 3,
+      "keywords": [
+        "モノトーンコーデ"
+      ]
+    },
+    {
+      "category": "patterns",
+      "value": "solid",
+      "score": 1.508,
+      "sourceCount": 3,
+      "keywords": [
+        "モノトーンコーデ"
+      ]
+    },
+    {
+      "category": "styles",
+      "value": "classic",
+      "score": 1.328,
+      "sourceCount": 2,
+      "keywords": [
+        "ナポレオンジャケット"
+      ]
+    }
+  ]
+}

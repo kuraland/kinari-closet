@@ -1,18 +1,53 @@
 {
-  "updatedAt": "2026-09-10",
-  "updateIntent": "トレンド要素の更新期限を持たせ、古い情報が推薦へ強く残り続けないようにする。処理日時: 2026-09-27 JST",
+  "updatedAt": "2026-09-29",
+  "updateIntent": "公開トレンドキーワードの週次集計を推薦属性へ変換。画像・投稿本文・ユーザー情報は保存しない。処理日時: 2026-09-29 JST",
   "current": {
-    "season": "2026 秋冬",
-    "title": "クラシックに、色とボリュームで変化を",
-    "updatedAt": "2026-09-10",
-    "validUntil": "2026-11-30",
-    "colors": ["purple", "pink", "red", "navy", "black"],
-    "patterns": ["solid", "check", "floral"],
-    "materials": ["knit", "wool", "leather"],
-    "silhouettes": ["wide", "relaxed", "short", "long"],
-    "styles": ["classic", "trendy"],
-    "tags": ["強い色", "大胆なボリューム", "クラシックの更新", "質感のコントラスト"],
-    "sourceLabel": "Vogue Fall 2026 trend report",
-    "sourceUrl": "https://www.vogue.com/article/fall-winter-2026-fashion-trends"
+    "season": "2026 秋",
+    "title": "「Y2K ファッション」と「カジュアルコーデ」の要素を取り入れる",
+    "updatedAt": "2026-09-29",
+    "validUntil": "2026-11-10",
+    "colors": [
+      "blue",
+      "black",
+      "white",
+      "gray",
+      "purple"
+    ],
+    "patterns": [
+      "solid",
+      "check",
+      "floral"
+    ],
+    "materials": [
+      "knit",
+      "denim",
+      "synthetic"
+    ],
+    "silhouettes": [
+      "wide",
+      "relaxed",
+      "short",
+      "long"
+    ],
+    "styles": [
+      "trendy",
+      "casual",
+      "minimal"
+    ],
+    "tags": [
+      "Y2K ファッション",
+      "カジュアルコーデ",
+      "フェス 服装",
+      "デニムセットアップ"
+    ],
+    "sourceLabel": "WEARトレンドキーワード（公開集計）",
+    "sourceUrl": "https://wear.jp/keyword/",
+    "automation": {
+      "mode": "wear-public-keywords",
+      "confidence": 1,
+      "sampleSize": 32,
+      "sourceCount": 3,
+      "reviewRequired": true
+    }
   }
 }

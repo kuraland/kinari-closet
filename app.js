@@ -1,4 +1,4 @@
-/* 更新意図: 女性向けサンプルを除外し、2026年秋冬のメンズトレンド7点へ安全に移行。処理日時: 2026-09-30 JST */
+/* 更新意図: 服登録を写真・名前・カテゴリ・色中心へ簡略化し、残りの属性を自動仮入力。処理日時: 2026-09-30 JST */
 const DB_NAME = "kinari-closet";
 const DB_VERSION = 1;
 const SETTINGS_KEY = "kinari-stylist-settings";
@@ -83,6 +83,7 @@ let trendProfile = DEFAULT_TREND_PROFILE;
 let trendFreshness = { factor: 1, label: "最新", ageDays: 0 };
 let currentPhoto = null;
 let currentPhotoUrl = null;
+let lastSuggestedItemName = "";
 let toastTimer;
 let cloudUser = null;
 let cloudSyncPromise = null;
@@ -457,13 +458,36 @@ function switchView(view) {
 function categoryFromName(filename) {
   const name = filename.toLowerCase();
   const groups = [
-    ["shoes", /shoe|sneaker|boot|靴|スニーカー|ブーツ/],
+    ["shoes", /shoe|sneaker|boot|derby|loafer|sandal|靴|スニーカー|ブーツ|ローファー|サンダル/],
     ["bottoms", /pants|jeans|skirt|trouser|パンツ|デニム|スカート/],
     ["outer", /jacket|coat|cardigan|ジャケット|コート|カーディガン/],
     ["onepiece", /dress|onepiece|ワンピ|ドレス/],
     ["accessory", /bag|hat|belt|バッグ|帽子|ベルト/],
+    ["tops", /shirt|sweater|knit|sweat|hoodie|tee|シャツ|ニット|スウェット|パーカー|Tシャツ/],
   ];
   return groups.find(([, pattern]) => pattern.test(name))?.[0] || "tops";
+}
+
+function colorFromName(filename) {
+  const name = filename.toLowerCase();
+  const colors = [
+    ["black", /black|黒/], ["white", /white|白/], ["gray", /gray|grey|グレー/],
+    ["navy", /navy|ネイビー|紺/], ["blue", /blue|ブルー|青/], ["beige", /beige|ベージュ/],
+    ["brown", /brown|ブラウン|茶/], ["green", /green|olive|グリーン|緑|オリーブ/],
+    ["red", /red|burgundy|レッド|赤|バーガンディ/], ["yellow", /yellow|イエロー|黄/],
+    ["pink", /pink|ピンク/], ["purple", /purple|パープル|紫/],
+  ];
+  return colors.find(([, pattern]) => pattern.test(name))?.[0] || null;
+}
+
+function materialFromName(filename) {
+  const name = filename.toLowerCase();
+  const materials = [
+    ["leather", /leather|レザー|革|derby|loafer|boot/], ["denim", /denim|jeans|デニム|ジーンズ/],
+    ["knit", /knit|sweater|ニット|セーター/], ["wool", /wool|tweed|ウール|ツイード/],
+    ["linen", /linen|リネン|麻/], ["synthetic", /nylon|polyester|ナイロン|ポリエステル/],
+  ];
+  return materials.find(([, pattern]) => pattern.test(name))?.[0] || null;
 }
 
 function closestColor([r, g, b]) {
@@ -506,32 +530,101 @@ async function compressAndAnalyze(file) {
   const sampleCtx = sampleCanvas.getContext("2d", { willReadFrequently: true });
   sampleCtx.drawImage(canvas, 0, 0, 32, 32);
   const pixels = sampleCtx.getImageData(0, 0, 32, 32).data;
-  let r = 0, g = 0, b = 0, count = 0;
-  for (let y = 5; y < 27; y += 2) {
-    for (let x = 5; x < 27; x += 2) {
+  const colorVotes = {};
+  let sampledCount = 0;
+  for (let y = 4; y < 28; y += 1) {
+    for (let x = 4; x < 28; x += 1) {
       const i = (y * 32 + x) * 4;
-      const maxChannel = Math.max(pixels[i], pixels[i + 1], pixels[i + 2]);
-      const minChannel = Math.min(pixels[i], pixels[i + 1], pixels[i + 2]);
-      if (maxChannel > 244 && maxChannel - minChannel < 12) continue;
-      r += pixels[i]; g += pixels[i + 1]; b += pixels[i + 2]; count++;
+      const rgb = [pixels[i], pixels[i + 1], pixels[i + 2]];
+      const maxChannel = Math.max(...rgb);
+      const minChannel = Math.min(...rgb);
+      const chroma = maxChannel - minChannel;
+      const brightness = (rgb[0] + rgb[1] + rgb[2]) / 3;
+      if (brightness > 225 && chroma < 24) continue;
+      const color = closestColor(rgb);
+      const weight = 1 + chroma / 50;
+      colorVotes[color] = (colorVotes[color] || 0) + weight;
+      sampledCount += 1;
     }
   }
-  const detectedColor = closestColor([r / Math.max(1, count), g / Math.max(1, count), b / Math.max(1, count)]);
+  const detectedColor = sampledCount
+    ? Object.entries(colorVotes).sort((a, b) => b[1] - a[1])[0][0]
+    : "white";
   const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", .82));
   if (typeof bitmap.close === "function") bitmap.close();
   return { blob, detectedColor };
+}
+
+function suggestedItemName(category = $("#item-category").value, color = $("#item-color").value) {
+  return `${labels.color[color] || ""}の${labels.category[category] || "服"}`;
+}
+
+function updateItemAnalysisSummary() {
+  const category = $("#item-category").value;
+  const color = $("#item-color").value;
+  const profile = getItemProfile({
+    name: $("#item-name").value,
+    category,
+    color,
+    formality: Number($("#item-formality").value),
+    pattern: $("#item-pattern").value,
+    material: $("#item-material").value,
+    silhouette: $("#item-silhouette").value,
+    style: $("#item-style").value,
+    statement: Number($("#item-statement").value),
+  });
+  $("#item-analysis-summary").innerHTML = `
+    <span aria-hidden="true">✦</span>
+    <p><strong>${labels.color[color]}・${labels.category[category]}・${labels.style[profile.style]}</strong><small>${labels.material[profile.material]}／${labels.silhouette[profile.silhouette]}。違う場合だけ詳細設定から修正できます</small></p>`;
+}
+
+function applyQuickItemInference({ updateName = true, filename = "" } = {}) {
+  const category = $("#item-category").value;
+  const color = $("#item-color").value;
+  const nextSuggestedName = suggestedItemName(category, color);
+  const nameInput = $("#item-name");
+  if (updateName && (!nameInput.value.trim() || nameInput.value === lastSuggestedItemName)) {
+    nameInput.value = nextSuggestedName;
+    lastSuggestedItemName = nextSuggestedName;
+  }
+
+  if (!$("#item-advanced").open) {
+    const categoryDefaults = {
+      tops: ["all", 2], bottoms: ["all", 2], onepiece: ["all", 2],
+      outer: ["autumn", 4], shoes: ["all", 2], accessory: ["all", 2],
+    };
+    const [season, warmth] = categoryDefaults[category] || ["all", 3];
+    $("#item-season").value = season;
+    $("#item-warmth").value = String(warmth);
+    const inferred = getItemProfile({
+      name: nameInput.value,
+      category,
+      color,
+      formality: Number($("#item-formality").value),
+    });
+    $("#item-pattern").value = inferred.pattern;
+    $("#item-material").value = materialFromName(filename) || (category === "shoes" ? "leather" : inferred.material);
+    $("#item-silhouette").value = inferred.silhouette;
+    $("#item-style").value = inferred.style;
+    $("#item-statement").value = inferred.statement;
+  }
+  updateItemAnalysisSummary();
 }
 
 function resetItemForm() {
   $("#item-form").reset();
   $("#item-id").value = "";
   $("#item-dialog-title").textContent = "服を登録";
+  $("#save-item").textContent = "この内容で登録";
+  $("#item-advanced").open = false;
   $("#photo-preview").hidden = true;
   $("#photo-placeholder").hidden = false;
-  $("#analysis-hint").textContent = "写真から色とファイル名を仮入力します。";
+  $("#analysis-hint").textContent = "写真を選ぶと、色と服の特徴を仮入力します。";
+  $("#item-analysis-summary").innerHTML = `<span aria-hidden="true">✦</span><p><strong>写真を選ぶと仮判定します</strong><small>違うところだけ後から直せます</small></p>`;
   revokePhotoURL(currentPhotoUrl);
   currentPhoto = null;
   currentPhotoUrl = null;
+  lastSuggestedItemName = "";
 }
 
 function openItemDialog(item = null) {
@@ -539,6 +632,7 @@ function openItemDialog(item = null) {
   if (item) {
     const profile = getItemProfile(item);
     $("#item-dialog-title").textContent = "服の情報を編集";
+    $("#save-item").textContent = "変更を保存";
     $("#item-id").value = item.id;
     $("#item-name").value = item.name;
     $("#item-category").value = item.category;
@@ -560,6 +654,7 @@ function openItemDialog(item = null) {
       $("#photo-preview").hidden = false;
       $("#photo-placeholder").hidden = true;
     }
+    updateItemAnalysisSummary();
   }
   $("#item-dialog").showModal();
 }
@@ -1064,31 +1159,30 @@ function bindEvents() {
     $("#analysis-hint").textContent = "写真を軽量化し、色を確認しています…";
     try {
       const { blob, detectedColor } = await compressAndAnalyze(file);
+      const resolvedColor = colorFromName(file.name) || detectedColor;
       currentPhoto = blob;
       revokePhotoURL(currentPhotoUrl);
       currentPhotoUrl = objectURL(blob);
       $("#photo-preview").src = currentPhotoUrl;
       $("#photo-preview").hidden = false;
       $("#photo-placeholder").hidden = true;
-      $("#item-color").value = detectedColor;
+      $("#item-color").value = resolvedColor;
       $("#item-category").value = categoryFromName(file.name);
-      if (!$("#item-name").value) $("#item-name").value = file.name.replace(/\.[^.]+$/, "").replace(/[_-]+/g, " ");
-      const inferred = getItemProfile({
-        name: $("#item-name").value,
-        category: $("#item-category").value,
-        color: detectedColor,
-        formality: Number($("#item-formality").value),
-      });
-      $("#item-pattern").value = inferred.pattern;
-      $("#item-material").value = inferred.material;
-      $("#item-silhouette").value = inferred.silhouette;
-      $("#item-style").value = inferred.style;
-      $("#item-statement").value = inferred.statement;
-      $("#analysis-hint").textContent = `仮判定：${labels.color[detectedColor]}・${labels.category[$("#item-category").value]}・${labels.style[inferred.style]}。違う場合は修正してください。`;
+      applyQuickItemInference({ filename: file.name });
+      $("#analysis-hint").textContent = "写真から仮入力しました。違うところだけ修正してください。";
     } catch (error) {
       console.error(error);
       $("#analysis-hint").textContent = "画像を読み込めませんでした。別の写真をお試しください。";
     }
+  });
+  ["#item-category", "#item-color"].forEach((selector) => {
+    $(selector).addEventListener("change", () => applyQuickItemInference());
+  });
+  $("#item-name").addEventListener("input", () => {
+    if ($("#item-name").value !== lastSuggestedItemName) lastSuggestedItemName = "";
+  });
+  ["#item-season", "#item-warmth", "#item-formality", "#item-pattern", "#item-material", "#item-silhouette", "#item-style", "#item-statement"].forEach((selector) => {
+    $(selector).addEventListener("change", updateItemAnalysisSummary);
   });
   $("#item-form").addEventListener("submit", saveItem);
   $("#item-dialog").addEventListener("close", resetItemForm);

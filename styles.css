@@ -1,4 +1,4 @@
-/* 更新意図: 既存の静かなデザインを保ち、クラウド同期の状態とログイン操作をスマホでも明確に表示。処理日時: 2026-09-29 JST */
+/* 更新意図: 服の簡単登録と折りたたみ式詳細設定を、スマホでも迷わず操作できる構成へ変更。処理日時: 2026-09-30 JST */
 :root {
   --ink: #252923;
   --muted: #73766e;
@@ -200,6 +200,24 @@ input[type="range"] { width: 100%; accent-color: var(--sage); }
 .photo-drop small { color: var(--muted); font-size: 9px; line-height: 1.5; }
 .analysis-hint { margin: 9px 3px 0; color: var(--muted); font-size: 9px; }
 .fields-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; }
+.quick-register-panel { min-width: 0; }
+.quick-register-heading { display: grid; gap: 4px; margin-bottom: 16px; }
+.quick-register-heading strong { font-size: 15px; }
+.quick-register-heading span { color: var(--muted); font-size: 10px; line-height: 1.6; }
+.quick-fields { margin-bottom: 15px; }
+.item-analysis-summary { display: flex; align-items: center; gap: 11px; margin-bottom: 15px; padding: 13px 14px; border-radius: 11px; background: var(--sage-soft); color: var(--sage-dark); }
+.item-analysis-summary > span { display: grid; flex: 0 0 28px; height: 28px; place-items: center; border-radius: 50%; background: #fff; font-size: 12px; }
+.item-analysis-summary p { display: grid; gap: 3px; margin: 0; }
+.item-analysis-summary strong { font-size: 11px; }
+.item-analysis-summary small { color: #687165; font-size: 9px; line-height: 1.5; }
+.advanced-fields { overflow: hidden; border: 1px solid var(--line); border-radius: 11px; background: #fff; }
+.advanced-fields summary { display: flex; align-items: center; gap: 9px; padding: 13px 14px; color: var(--ink); cursor: pointer; list-style: none; }
+.advanced-fields summary::-webkit-details-marker { display: none; }
+.advanced-fields summary::after { margin-left: auto; color: var(--muted); content: "＋"; }
+.advanced-fields[open] summary::after { content: "−"; }
+.advanced-fields summary span { font-size: 11px; font-weight: 700; }
+.advanced-fields summary small { color: var(--muted); font-size: 9px; }
+.advanced-grid { padding: 15px; border-top: 1px solid var(--line); background: #faf8f3; }
 .field { display: grid; gap: 6px; }
 .field.full { grid-column: 1/-1; }
 .field span { color: var(--muted); font-size: 9px; font-weight: 600; }

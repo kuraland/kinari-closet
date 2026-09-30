@@ -15,7 +15,7 @@
       href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Noto+Sans+JP:wght@400;500;600;700&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="styles.css?v=7" />
+    <link rel="stylesheet" href="styles.css?v=8" />
   </head>
   <body>
     <!-- 更新意図: 端末内保存を維持しつつ、任意ログインによるSupabase端末間同期を追加。処理日時: 2026-09-29 JST -->
@@ -265,67 +265,85 @@
                 <small>明るい場所で一着ずつ撮ると正確です</small>
               </span>
             </label>
-            <p class="analysis-hint" id="analysis-hint">写真から色とファイル名を仮入力します。</p>
+            <p class="analysis-hint" id="analysis-hint">写真を選ぶと、色と服の特徴を仮入力します。</p>
           </div>
 
-          <div class="fields-grid">
-            <label class="field full"><span>名前</span><input id="item-name" required placeholder="例：白のオックスフォードシャツ" /></label>
-            <label class="field"><span>カテゴリ</span><select id="item-category" required>
-              <option value="tops">トップス</option><option value="bottoms">ボトムス</option>
-              <option value="onepiece">ワンピース</option><option value="outer">アウター</option>
-              <option value="shoes">靴</option><option value="accessory">小物</option>
-            </select></label>
-            <label class="field"><span>色</span><select id="item-color">
-              <option value="white">白</option><option value="black">黒</option><option value="gray">グレー</option>
-              <option value="navy">ネイビー</option><option value="blue">ブルー</option><option value="beige">ベージュ</option>
-              <option value="brown">ブラウン</option><option value="green">グリーン</option><option value="red">レッド</option>
-              <option value="yellow">イエロー</option><option value="pink">ピンク</option><option value="purple">パープル</option>
-              <option value="multi">マルチカラー</option>
-            </select></label>
-            <label class="field"><span>季節</span><select id="item-season">
-              <option value="all">通年</option><option value="spring">春</option><option value="summer">夏</option>
-              <option value="autumn">秋</option><option value="winter">冬</option>
-            </select></label>
-            <label class="field"><span>暖かさ</span><select id="item-warmth">
-              <option value="1">1 — とても涼しい</option><option value="2">2 — 涼しい</option><option value="3" selected>3 — 普通</option>
-              <option value="4">4 — 暖かい</option><option value="5">5 — とても暖かい</option>
-            </select></label>
-            <label class="field"><span>フォーマル度</span><select id="item-formality">
-              <option value="1">1 — ラフ</option><option value="2">2 — カジュアル</option><option value="3" selected>3 — きれいめ</option>
-              <option value="4">4 — ビジネス</option><option value="5">5 — フォーマル</option>
-            </select></label>
-            <label class="field"><span>柄</span><select id="item-pattern">
-              <option value="solid">無地</option><option value="stripe">ストライプ</option><option value="check">チェック</option>
-              <option value="floral">花柄</option><option value="graphic">柄・グラフィック</option><option value="other">その他</option>
-            </select></label>
-            <label class="field"><span>素材</span><select id="item-material">
-              <option value="cotton">コットン</option><option value="knit">ニット</option><option value="denim">デニム</option>
-              <option value="linen">リネン</option><option value="wool">ウール</option><option value="leather">レザー</option>
-              <option value="synthetic">化繊</option><option value="other">その他</option>
-            </select></label>
-            <label class="field"><span>シルエット</span><select id="item-silhouette">
-              <option value="slim">細身</option><option value="regular" selected>標準</option><option value="relaxed">ゆったり</option>
-              <option value="wide">ワイド</option><option value="short">短丈</option><option value="long">ロング</option>
-            </select></label>
-            <label class="field"><span>テイスト</span><select id="item-style">
-              <option value="casual">カジュアル</option><option value="clean" selected>きれいめ</option><option value="minimal">ミニマル</option>
-              <option value="classic">クラシック</option><option value="natural">ナチュラル</option><option value="sporty">スポーティ</option>
-              <option value="trendy">トレンド</option>
-            </select></label>
-            <label class="field"><span>存在感</span><select id="item-statement">
-              <option value="1">1 — 控えめ</option><option value="2" selected>2 — なじみやすい</option><option value="3">3 — 程よい</option>
-              <option value="4">4 — アクセント</option><option value="5">5 — 主役</option>
-            </select></label>
-            <label class="field"><span>状態</span><select id="item-status">
-              <option value="ready">着用可能</option><option value="laundry">洗濯中</option><option value="cleaning">クリーニング</option>
-            </select></label>
-            <label class="field full"><span>メモ（任意）</span><textarea id="item-notes" rows="2" placeholder="ゆったりめ、雨の日は避ける など"></textarea></label>
+          <div class="quick-register-panel">
+            <div class="quick-register-heading">
+              <strong>まずは3項目だけ</strong>
+              <span>ほかの特徴は写真と入力内容から仮設定します</span>
+            </div>
+
+            <div class="fields-grid quick-fields">
+              <label class="field full"><span>名前</span><input id="item-name" required placeholder="写真を選ぶと自動入力します" /></label>
+              <label class="field"><span>カテゴリ</span><select id="item-category" required>
+                <option value="tops">トップス</option><option value="bottoms">ボトムス</option>
+                <option value="onepiece">ワンピース</option><option value="outer">アウター</option>
+                <option value="shoes">靴</option><option value="accessory">小物</option>
+              </select></label>
+              <label class="field"><span>色</span><select id="item-color">
+                <option value="white">白</option><option value="black">黒</option><option value="gray">グレー</option>
+                <option value="navy">ネイビー</option><option value="blue">ブルー</option><option value="beige">ベージュ</option>
+                <option value="brown">ブラウン</option><option value="green">グリーン</option><option value="red">レッド</option>
+                <option value="yellow">イエロー</option><option value="pink">ピンク</option><option value="purple">パープル</option>
+                <option value="multi">マルチカラー</option>
+              </select></label>
+            </div>
+
+            <div class="item-analysis-summary" id="item-analysis-summary" aria-live="polite">
+              <span aria-hidden="true">✦</span>
+              <p><strong>写真を選ぶと仮判定します</strong><small>違うところだけ後から直せます</small></p>
+            </div>
+
+            <details class="advanced-fields" id="item-advanced">
+              <summary><span>詳細設定</span><small>季節・素材などを修正</small></summary>
+              <div class="fields-grid advanced-grid">
+                <label class="field"><span>季節</span><select id="item-season">
+                  <option value="all">通年</option><option value="spring">春</option><option value="summer">夏</option>
+                  <option value="autumn">秋</option><option value="winter">冬</option>
+                </select></label>
+                <label class="field"><span>暖かさ</span><select id="item-warmth">
+                  <option value="1">1 — とても涼しい</option><option value="2">2 — 涼しい</option><option value="3" selected>3 — 普通</option>
+                  <option value="4">4 — 暖かい</option><option value="5">5 — とても暖かい</option>
+                </select></label>
+                <label class="field"><span>フォーマル度</span><select id="item-formality">
+                  <option value="1">1 — ラフ</option><option value="2">2 — カジュアル</option><option value="3" selected>3 — きれいめ</option>
+                  <option value="4">4 — ビジネス</option><option value="5">5 — フォーマル</option>
+                </select></label>
+                <label class="field"><span>柄</span><select id="item-pattern">
+                  <option value="solid">無地</option><option value="stripe">ストライプ</option><option value="check">チェック</option>
+                  <option value="floral">花柄</option><option value="graphic">柄・グラフィック</option><option value="other">その他</option>
+                </select></label>
+                <label class="field"><span>素材</span><select id="item-material">
+                  <option value="cotton">コットン</option><option value="knit">ニット</option><option value="denim">デニム</option>
+                  <option value="linen">リネン</option><option value="wool">ウール</option><option value="leather">レザー</option>
+                  <option value="synthetic">化繊</option><option value="other">その他</option>
+                </select></label>
+                <label class="field"><span>シルエット</span><select id="item-silhouette">
+                  <option value="slim">細身</option><option value="regular" selected>標準</option><option value="relaxed">ゆったり</option>
+                  <option value="wide">ワイド</option><option value="short">短丈</option><option value="long">ロング</option>
+                </select></label>
+                <label class="field"><span>テイスト</span><select id="item-style">
+                  <option value="casual">カジュアル</option><option value="clean" selected>きれいめ</option><option value="minimal">ミニマル</option>
+                  <option value="classic">クラシック</option><option value="natural">ナチュラル</option><option value="sporty">スポーティ</option>
+                  <option value="trendy">トレンド</option>
+                </select></label>
+                <label class="field"><span>存在感</span><select id="item-statement">
+                  <option value="1">1 — 控えめ</option><option value="2" selected>2 — なじみやすい</option><option value="3">3 — 程よい</option>
+                  <option value="4">4 — アクセント</option><option value="5">5 — 主役</option>
+                </select></label>
+                <label class="field"><span>状態</span><select id="item-status">
+                  <option value="ready">着用可能</option><option value="laundry">洗濯中</option><option value="cleaning">クリーニング</option>
+                </select></label>
+                <label class="field full"><span>メモ（任意）</span><textarea id="item-notes" rows="2" placeholder="ゆったりめ、雨の日は避ける など"></textarea></label>
+              </div>
+            </details>
           </div>
         </div>
 
         <div class="dialog-actions">
           <button class="secondary-button" type="button" data-close-item-dialog>キャンセル</button>
-          <button class="primary-button" id="save-item" type="submit">この内容で保存</button>
+          <button class="primary-button" id="save-item" type="submit">この内容で登録</button>
         </div>
       </form>
     </dialog>
@@ -371,6 +389,6 @@
     <div class="toast" id="toast" role="status"></div>
     <script src="supabase-config.js?v=1"></script>
     <script src="cloud-sync.js?v=1"></script>
-    <script src="app.js?v=8"></script>
+    <script src="app.js?v=9"></script>
   </body>
 </html>

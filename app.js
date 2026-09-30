@@ -1,6 +1,6 @@
-/* 更新意図: コーデ提案から匿名モデルのAI着用イメージを安全に生成する第一段階を追加。処理日時: 2026-09-30 JST */
+/* 更新意図: 店頭で撮影した服を購入候補として仮登録し、手持ち服との3コーデ比較から購入後の本登録までつなぐ。処理日時: 2026-10-01 JST */
 const DB_NAME = "kinari-closet";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const SETTINGS_KEY = "kinari-stylist-settings";
 const PREFERENCE_HALF_LIFE_DAYS = 120;
 const RETIRED_SAMPLE_IDS = new Set([
@@ -79,11 +79,15 @@ const SAMPLE_ITEMS = [
 let db;
 let items = [];
 let feedback = [];
+let purchaseCandidates = [];
 let trendProfile = DEFAULT_TREND_PROFILE;
 let trendFreshness = { factor: 1, label: "最新", ageDays: 0 };
 let currentPhoto = null;
 let currentPhotoUrl = null;
 let lastSuggestedItemName = "";
+let currentCandidatePhoto = null;
+let currentCandidatePhotoUrl = null;
+let lastSuggestedCandidateName = "";
 let toastTimer;
 let cloudUser = null;
 let cloudSyncPromise = null;
@@ -101,6 +105,7 @@ function openDB() {
       const database = request.result;
       if (!database.objectStoreNames.contains("items")) database.createObjectStore("items", { keyPath: "id" });
       if (!database.objectStoreNames.contains("feedback")) database.createObjectStore("feedback", { keyPath: "id" });
+      if (!database.objectStoreNames.contains("candidates")) database.createObjectStore("candidates", { keyPath: "id" });
     };
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error);
@@ -455,6 +460,7 @@ function switchView(view) {
   $(".sidebar").classList.remove("is-open");
   window.scrollTo({ top: 0, behavior: "smooth" });
   if (view === "closet") renderCloset();
+  if (view === "shopping") renderCandidates();
 }
 
 function categoryFromName(filename) {
@@ -702,6 +708,167 @@ async function saveItem(event) {
   }
 }
 
+function candidateDefaults(category, color, name, filename = "") {
+  const categoryDefaults = {
+    tops: ["all", 2, 2], bottoms: ["all", 2, 2], onepiece: ["all", 2, 3],
+    outer: ["autumn", 4, 3], shoes: ["all", 2, 2], accessory: ["all", 2, 2],
+  };
+  const [season, warmth, formality] = categoryDefaults[category] || ["all", 3, 3];
+  const profile = getItemProfile({ name, category, color, formality });
+  return {
+    season,
+    warmth,
+    formality,
+    pattern: profile.pattern,
+    material: materialFromName(filename) || (category === "shoes" ? "leather" : profile.material),
+    silhouette: profile.silhouette,
+    style: profile.style,
+    statement: profile.statement,
+  };
+}
+
+function suggestedCandidateName() {
+  const category = $("#candidate-category").value;
+  const color = $("#candidate-color").value;
+  return `${labels.color[color] || ""}の${labels.category[category] || "服"}`;
+}
+
+function updateCandidateAnalysisSummary() {
+  const category = $("#candidate-category").value;
+  const color = $("#candidate-color").value;
+  const name = $("#candidate-name").value.trim() || suggestedCandidateName();
+  const profile = candidateDefaults(category, color, name);
+  $("#candidate-analysis-summary").innerHTML = `
+    <span aria-hidden="true">✦</span>
+    <p><strong>${labels.color[color]}・${labels.category[category]}・${labels.style[profile.style]}</strong><small>この候補を必ず含む3コーデを手持ち服から探します</small></p>`;
+}
+
+function applyQuickCandidateInference({ filename = "", updateName = true } = {}) {
+  const nextName = suggestedCandidateName();
+  const nameInput = $("#candidate-name");
+  if (updateName && (!nameInput.value.trim() || nameInput.value === lastSuggestedCandidateName)) {
+    nameInput.value = nextName;
+    lastSuggestedCandidateName = nextName;
+  }
+  updateCandidateAnalysisSummary();
+}
+
+function resetCandidateForm() {
+  $("#candidate-form").reset();
+  $("#candidate-photo-preview").hidden = true;
+  $("#candidate-photo-placeholder").hidden = false;
+  $("#candidate-analysis-hint").textContent = "写真はAPIへ送らず、この端末内で軽量化します。";
+  $("#candidate-analysis-summary").innerHTML = `<span aria-hidden="true">✦</span><p><strong>写真を選ぶと仮判定します</strong><small>候補保存後すぐに手持ち服との3案を表示します</small></p>`;
+  revokePhotoURL(currentCandidatePhotoUrl);
+  currentCandidatePhoto = null;
+  currentCandidatePhotoUrl = null;
+  lastSuggestedCandidateName = "";
+}
+
+function openCandidateDialog() {
+  resetCandidateForm();
+  $("#candidate-dialog").showModal();
+}
+
+async function saveCandidate(event) {
+  event.preventDefault();
+  const form = $("#candidate-form");
+  if (!form.checkValidity() || !currentCandidatePhoto) {
+    form.reportValidity();
+    if (!currentCandidatePhoto) showToast("まず候補の写真を撮るか選んでください");
+    return;
+  }
+
+  const button = $("#save-candidate");
+  const defaultLabel = button.textContent;
+  button.disabled = true;
+  button.textContent = "組み合わせを探しています…";
+  try {
+    const now = new Date().toISOString();
+    const category = $("#candidate-category").value;
+    const color = $("#candidate-color").value;
+    const name = $("#candidate-name").value.trim();
+    const candidate = {
+      id: createId(),
+      name,
+      category,
+      color,
+      ...candidateDefaults(category, color, name),
+      photo: currentCandidatePhoto,
+      price: Number($("#candidate-price").value) || null,
+      store: $("#candidate-store").value.trim(),
+      status: "active",
+      createdAt: now,
+      updatedAt: now,
+    };
+    await put("candidates", candidate);
+    purchaseCandidates = await getAll("candidates");
+    $("#candidate-dialog").close();
+    renderCandidates();
+    switchView("shopping");
+    showToast("購入候補に追加し、手持ち服との3案を作りました");
+  } catch (error) {
+    console.error("購入候補の保存に失敗しました", error);
+    showToast("購入候補を保存できませんでした。もう一度お試しください");
+  } finally {
+    button.disabled = false;
+    button.textContent = defaultLabel;
+  }
+}
+
+async function archiveCandidate(id) {
+  const candidate = purchaseCandidates.find((entry) => entry.id === id);
+  if (!candidate || candidate.status !== "active") return;
+  const now = new Date().toISOString();
+  await put("candidates", { ...candidate, status: "archived", archivedAt: now, updatedAt: now });
+  purchaseCandidates = await getAll("candidates");
+  renderCandidates();
+  showToast("候補を削除せず、見送り履歴へ移しました");
+}
+
+async function reopenCandidate(id) {
+  const candidate = purchaseCandidates.find((entry) => entry.id === id);
+  if (!candidate || candidate.status === "purchased") return;
+  const now = new Date().toISOString();
+  await put("candidates", { ...candidate, status: "active", reopenedAt: now, updatedAt: now });
+  purchaseCandidates = await getAll("candidates");
+  renderCandidates();
+  showToast("検討中の候補へ戻しました");
+}
+
+async function purchaseCandidate(id) {
+  const candidate = purchaseCandidates.find((entry) => entry.id === id);
+  if (!candidate || candidate.status !== "active") return;
+  const now = new Date().toISOString();
+  const closetItem = {
+    id: createId(),
+    name: candidate.name,
+    category: candidate.category,
+    color: candidate.color,
+    season: candidate.season,
+    warmth: candidate.warmth,
+    formality: candidate.formality,
+    pattern: candidate.pattern,
+    material: candidate.material,
+    silhouette: candidate.silhouette,
+    style: candidate.style,
+    statement: candidate.statement,
+    photo: candidate.photo,
+    status: "ready",
+    notes: [candidate.store ? `購入先: ${candidate.store}` : "", candidate.price ? `購入候補価格: ¥${candidate.price.toLocaleString("ja-JP")}` : ""].filter(Boolean).join(" / "),
+    sourceCandidateId: candidate.id,
+    createdAt: now,
+    updatedAt: now,
+    lastWornAt: null,
+  };
+  await put("items", closetItem);
+  await put("candidates", { ...candidate, status: "purchased", purchasedAt: now, closetItemId: closetItem.id, updatedAt: now });
+  [items, purchaseCandidates] = await Promise.all([getAll("items"), getAll("candidates")]);
+  renderAll();
+  queueCloudSync();
+  showToast("購入した服をクローゼットへ追加しました");
+}
+
 async function archiveItem(id) {
   const item = items.find((entry) => entry.id === id);
   if (!item) return;
@@ -881,6 +1048,67 @@ function renderCloset() {
   }).join("") : `<div class="empty-state"><strong>該当する服がありません</strong><span>条件を変えるか、新しい服を登録してください。</span></div>`;
 }
 
+function candidateMeta(candidate) {
+  const details = [labels.color[candidate.color], labels.category[candidate.category]];
+  if (candidate.price) details.push(`¥${candidate.price.toLocaleString("ja-JP")}`);
+  if (candidate.store) details.push(candidate.store);
+  return details.map(escapeHTML).join(" ・ ");
+}
+
+function renderCandidateOutfit(outfit, candidateId, index) {
+  const companionItems = outfit.items.filter((item) => item.id !== candidateId);
+  const roleLabel = { balanced: "いちばんおすすめ", personal: "あなたらしさ重視", harmony: "まとまり重視", trend: "今季らしさ重視" }[outfit.role] || "おすすめ";
+  const strongest = Object.entries(outfit.components).sort((a, b) => b[1] - a[1])[0];
+  const reasonLabel = { practical: "使いやすさ", preference: "好みとの近さ", harmony: "服同士の相性", trend: "今季らしさ" }[strongest[0]];
+  return `
+    <article class="candidate-outfit">
+      <div class="candidate-outfit-top"><span>LOOK 0${index + 1}・${roleLabel}</span><strong>${outfit.score}</strong></div>
+      <div class="candidate-pieces">${companionItems.map((item) => `<div><figure>${itemPhotoMarkup(item)}</figure><p>${escapeHTML(item.name)}</p></div>`).join("")}</div>
+      <p class="candidate-outfit-reason">${reasonLabel}を特に高く評価。手持ちの${companionItems.slice(0, 2).map((item) => escapeHTML(item.name)).join("と")}が合わせやすい組み合わせです。</p>
+    </article>`;
+}
+
+function renderCandidates() {
+  const active = purchaseCandidates.filter((candidate) => candidate.status === "active").sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  const history = purchaseCandidates.filter((candidate) => candidate.status !== "active").sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  $("#candidate-count").textContent = `${active.length}点`;
+  $("#candidate-list").innerHTML = active.length ? active.map((candidate) => {
+    const outfits = candidateOutfits(candidate);
+    return `
+      <article class="candidate-card">
+        <div class="candidate-item">
+          <div class="candidate-image">${itemPhotoMarkup(candidate)}<span>購入前</span></div>
+          <div class="candidate-item-body">
+            <p class="eyebrow">SHOPPING CANDIDATE</p>
+            <h3>${escapeHTML(candidate.name)}</h3>
+            <p class="candidate-meta">${candidateMeta(candidate)}</p>
+            <div class="candidate-actions">
+              <button class="primary-button" type="button" data-purchase-candidate="${candidate.id}">購入した → 追加</button>
+              <button class="secondary-button" type="button" data-archive-candidate="${candidate.id}">今回は見送る</button>
+            </div>
+          </div>
+        </div>
+        <div class="candidate-recommendations">
+          <div class="candidate-recommendations-heading"><div><p class="eyebrow">WITH MY CLOSET</p><h3>手持ち服と組めるコーデ</h3></div><span>${outfits.length}案</span></div>
+          ${outfits.length
+            ? `<div class="candidate-outfits">${outfits.map((outfit, index) => renderCandidateOutfit(outfit, candidate.id, index)).join("")}</div>`
+            : `<div class="candidate-no-outfits"><strong>この候補を含む組み合わせをまだ作れません</strong><span>トップス＋ボトムスと靴を着用可能な状態で登録すると提案できます。</span></div>`}
+        </div>
+      </article>`;
+  }).join("") : `
+    <button class="candidate-empty" type="button" data-open-candidate-dialog>
+      <span aria-hidden="true">◎</span><strong>気になる服を撮ってみる</strong><small>仮登録なので、クローゼットにはまだ追加されません</small>
+    </button>`;
+
+  $("#candidate-history-wrap").hidden = history.length === 0;
+  $("#candidate-history").innerHTML = history.map((candidate) => `
+    <article class="candidate-history-item">
+      <div>${itemPhotoMarkup(candidate)}</div>
+      <p><strong>${escapeHTML(candidate.name)}</strong><small>${candidate.status === "purchased" ? "購入済み・クローゼットへ追加済み" : "見送り"}</small></p>
+      ${candidate.status === "archived" ? `<button class="text-button" type="button" data-reopen-candidate="${candidate.id}">もう一度検討</button>` : `<span class="soft-badge">追加済み</span>`}
+    </article>`).join("");
+}
+
 function desiredWarmth(temp) {
   if (temp <= 7) return 5;
   if (temp <= 14) return 4;
@@ -1030,8 +1258,8 @@ function trendScore(set) {
   return Math.round(clamp(freshAdjustedScore));
 }
 
-function generateCandidates(conditions) {
-  const ready = items.filter((item) => item.status === "ready");
+function generateCandidates(conditions, sourceItems = items) {
+  const ready = sourceItems.filter((item) => item.status === "ready");
   const group = (category) => ready.filter((item) => item.category === category);
   const bases = [];
   if (group("tops").length && group("bottoms").length) bases.push(...combinations([group("tops"), group("bottoms")]));
@@ -1042,20 +1270,20 @@ function generateCandidates(conditions) {
     const withItems = choices.map((item) => [...base, item]);
     return includeNone ? [base, ...withItems] : withItems;
   };
-  const candidates = [];
+  const rankedCandidates = [];
   for (const base of bases) {
     const withOuter = optional(base, "outer", conditions.temperature < 19 || conditions.weather === "rain");
     for (const set of withOuter) {
       const withShoes = optional(set, "shoes", true);
-      for (const dressed of withShoes) candidates.push(...optional(dressed, "accessory", true, true));
+      for (const dressed of withShoes) rankedCandidates.push(...optional(dressed, "accessory", true, true));
     }
   }
-  if (!candidates.length) return [];
+  if (!rankedCandidates.length) return [];
 
   const model = buildPreferenceModel(conditions);
   const weights = decisionWeights(conditions.preferenceBalance);
 
-  return candidates.map((set) => {
+  return rankedCandidates.map((set) => {
     const components = {
       practical: practicalScore(set, conditions),
       preference: preferenceScore(set, model),
@@ -1100,6 +1328,22 @@ function selectDiverse(candidates) {
   );
   choose("trend", (candidate) => candidate.components.trend * .7 + candidate.score * .3, 55);
   return selected;
+}
+
+function candidateOutfits(candidate) {
+  const settings = readStylistSettings();
+  const conditions = {
+    temperature: candidate.category === "outer" ? 16 : 22,
+    weather: "sunny",
+    occasion: "daily",
+    mood: "relaxed",
+    avoidRecent: false,
+    preferenceBalance: Number.isFinite(Number(settings.preferenceBalance)) ? Number(settings.preferenceBalance) : 67,
+  };
+  const previewItem = { ...candidate, status: "ready", isPurchaseCandidate: true };
+  const sourceItems = [...items.filter((item) => item.status === "ready"), previewItem];
+  const matching = generateCandidates(conditions, sourceItems).filter((outfit) => outfit.items.some((item) => item.id === candidate.id));
+  return selectDiverse(matching).slice(0, 3);
 }
 
 function outfitReason(outfit) {
@@ -1217,6 +1461,7 @@ function updateWeightOutput() {
 function renderAll() {
   renderStats();
   renderCloset();
+  renderCandidates();
   renderLearningSummary();
   renderTrendCard();
   updateWeightOutput();
@@ -1237,6 +1482,11 @@ function bindEvents() {
     const closeCloud = event.target.closest("[data-close-cloud-dialog]");
     const generateLook = event.target.closest("[data-generate-look]");
     const closeLook = event.target.closest("[data-close-look-dialog]");
+    const openCandidate = event.target.closest("[data-open-candidate-dialog]");
+    const closeCandidate = event.target.closest("[data-close-candidate-dialog]");
+    const purchase = event.target.closest("[data-purchase-candidate]");
+    const archiveCandidateButton = event.target.closest("[data-archive-candidate]");
+    const reopenCandidateButton = event.target.closest("[data-reopen-candidate]");
     if (opener) openItemDialog();
     if (edit) openItemDialog(items.find((item) => item.id === edit.dataset.editItem));
     if (archive) archiveItem(archive.dataset.archiveItem);
@@ -1248,6 +1498,11 @@ function bindEvents() {
     if (closeCloud) $("#cloud-dialog").close();
     if (generateLook) openLookDialog(generateLook.dataset.generateLook);
     if (closeLook && !lookGenerationInProgress) $("#look-dialog").close();
+    if (openCandidate) openCandidateDialog();
+    if (closeCandidate) $("#candidate-dialog").close();
+    if (purchase) purchaseCandidate(purchase.dataset.purchaseCandidate);
+    if (archiveCandidateButton) archiveCandidate(archiveCandidateButton.dataset.archiveCandidate);
+    if (reopenCandidateButton) reopenCandidate(reopenCandidateButton.dataset.reopenCandidate);
   });
   $("#mobile-menu").addEventListener("click", () => $(".sidebar").classList.toggle("is-open"));
   $("#closet-search").addEventListener("input", renderCloset);
@@ -1270,6 +1525,36 @@ function bindEvents() {
       showToast(error.message);
     }
   });
+  $("#candidate-photo").addEventListener("change", async (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+    $("#candidate-analysis-hint").textContent = "写真を端末内で軽量化し、色を確認しています…";
+    try {
+      const { blob, detectedColor } = await compressAndAnalyze(file);
+      currentCandidatePhoto = blob;
+      revokePhotoURL(currentCandidatePhotoUrl);
+      currentCandidatePhotoUrl = objectURL(blob);
+      $("#candidate-photo-preview").src = currentCandidatePhotoUrl;
+      $("#candidate-photo-preview").hidden = false;
+      $("#candidate-photo-placeholder").hidden = true;
+      $("#candidate-color").value = colorFromName(file.name) || detectedColor;
+      $("#candidate-category").value = categoryFromName(file.name);
+      applyQuickCandidateInference({ filename: file.name });
+      $("#candidate-analysis-hint").textContent = "写真から仮入力しました。違うところだけ修正してください。";
+    } catch (error) {
+      console.error(error);
+      $("#candidate-analysis-hint").textContent = "画像を読み込めませんでした。別の写真をお試しください。";
+    }
+  });
+  ["#candidate-category", "#candidate-color"].forEach((selector) => {
+    $(selector).addEventListener("change", () => applyQuickCandidateInference());
+  });
+  $("#candidate-name").addEventListener("input", () => {
+    if ($("#candidate-name").value !== lastSuggestedCandidateName) lastSuggestedCandidateName = "";
+    updateCandidateAnalysisSummary();
+  });
+  $("#candidate-form").addEventListener("submit", saveCandidate);
+  $("#candidate-dialog").addEventListener("close", resetCandidateForm);
   $("#item-photo").addEventListener("change", async (event) => {
     const file = event.target.files[0];
     if (!file) return;
@@ -1329,7 +1614,7 @@ async function init() {
     await retireLegacyWomenSamples();
     await ensureSampleItems();
     await loadTrendProfile();
-    [items, feedback] = await Promise.all([getAll("items"), getAll("feedback")]);
+    [items, feedback, purchaseCandidates] = await Promise.all([getAll("items"), getAll("feedback"), getAll("candidates")]);
     loadStylistSettings();
     bindEvents();
     renderAll();

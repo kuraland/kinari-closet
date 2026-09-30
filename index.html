@@ -15,10 +15,10 @@
       href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Noto+Sans+JP:wght@400;500;600;700&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="styles.css?v=9" />
+    <link rel="stylesheet" href="styles.css?v=10" />
   </head>
   <body>
-    <!-- 更新意図: コーデ提案から匿名モデルのAI着用イメージを生成できる第一段階を追加。処理日時: 2026-09-30 JST -->
+    <!-- 更新意図: 店頭で撮影した服を購入候補として仮登録し、手持ち服との組み合わせ確認から購入後の本登録までつなぐ。処理日時: 2026-10-01 JST -->
     <div class="app-shell">
       <aside class="sidebar" aria-label="メインナビゲーション">
         <a class="brand" href="#home" aria-label="KINARI ホーム">
@@ -35,6 +35,9 @@
           </button>
           <button class="nav-item" data-view="closet">
             <span aria-hidden="true">▦</span> クローゼット
+          </button>
+          <button class="nav-item" data-view="shopping">
+            <span aria-hidden="true">◎</span> 買い物候補
           </button>
           <button class="nav-item" data-view="stylist">
             <span aria-hidden="true">✦</span> コーデを作る
@@ -153,6 +156,35 @@
           <div class="closet-grid" id="closet-grid"></div>
         </section>
 
+        <section class="view" id="view-shopping" aria-labelledby="shopping-title">
+          <div class="page-heading">
+            <div>
+              <p class="eyebrow">SHOPPING ASSIST</p>
+              <h1 id="shopping-title">買う前に、手持ちと合わせる。</h1>
+              <p>店頭で写真を撮るだけ。今ある服と組める3コーデを確認してから決められます。</p>
+            </div>
+            <button class="primary-button" data-open-candidate-dialog>＋ 候補を撮る</button>
+          </div>
+
+          <article class="shopping-guide panel">
+            <div><span>01</span><strong>写真を撮る</strong><small>スマホのカメラからそのまま登録</small></div>
+            <div><span>02</span><strong>3コーデを比較</strong><small>好み・相性・今季らしさで採点</small></div>
+            <div><span>03</span><strong>買ったら追加</strong><small>ワンタップでクローゼットへ</small></div>
+            <p><span aria-hidden="true">⌁</span> APIは使わず、この端末内だけで処理・保存します</p>
+          </article>
+
+          <div class="candidate-heading">
+            <div><p class="eyebrow">TRY WITH MY CLOSET</p><h2>検討中の服</h2></div>
+            <span class="soft-badge" id="candidate-count">0点</span>
+          </div>
+          <div class="candidate-list" id="candidate-list"></div>
+
+          <details class="candidate-history" id="candidate-history-wrap" hidden>
+            <summary>購入済み・見送った候補</summary>
+            <div id="candidate-history"></div>
+          </details>
+        </section>
+
         <section class="view" id="view-stylist" aria-labelledby="stylist-title">
           <div class="page-heading">
             <div>
@@ -243,6 +275,65 @@
         </section>
       </main>
     </div>
+
+    <dialog class="item-dialog candidate-dialog" id="candidate-dialog">
+      <form class="dialog-card" id="candidate-form">
+        <div class="dialog-heading">
+          <div>
+            <p class="eyebrow">TRY BEFORE BUYING</p>
+            <h2>購入候補を仮登録</h2>
+          </div>
+          <button class="icon-button" type="button" data-close-candidate-dialog aria-label="閉じる">×</button>
+        </div>
+
+        <div class="item-form-grid">
+          <div>
+            <label class="photo-drop candidate-photo-drop">
+              <input id="candidate-photo" type="file" accept="image/*" capture="environment" required />
+              <img id="candidate-photo-preview" alt="購入候補のプレビュー" hidden />
+              <span id="candidate-photo-placeholder">
+                <strong>＋ 店頭で撮る</strong>
+                <small>写真ライブラリから選ぶこともできます</small>
+              </span>
+            </label>
+            <p class="analysis-hint" id="candidate-analysis-hint">写真はAPIへ送らず、この端末内で軽量化します。</p>
+          </div>
+
+          <div class="quick-register-panel">
+            <div class="quick-register-heading">
+              <strong>確認は3項目だけ</strong>
+              <span>写真から色とカテゴリを仮入力します。違うところだけ直してください。</span>
+            </div>
+            <div class="fields-grid quick-fields">
+              <label class="field full"><span>候補の名前</span><input id="candidate-name" required placeholder="例：気になったブラウンのシャツ" /></label>
+              <label class="field"><span>カテゴリ</span><select id="candidate-category" required>
+                <option value="tops">トップス</option><option value="bottoms">ボトムス</option>
+                <option value="onepiece">ワンピース</option><option value="outer">アウター</option>
+                <option value="shoes">靴</option><option value="accessory">小物</option>
+              </select></label>
+              <label class="field"><span>色</span><select id="candidate-color">
+                <option value="white">白</option><option value="black">黒</option><option value="gray">グレー</option>
+                <option value="navy">ネイビー</option><option value="blue">ブルー</option><option value="beige">ベージュ</option>
+                <option value="brown">ブラウン</option><option value="green">グリーン</option><option value="red">レッド</option>
+                <option value="yellow">イエロー</option><option value="pink">ピンク</option><option value="purple">パープル</option>
+                <option value="multi">マルチカラー</option>
+              </select></label>
+              <label class="field"><span>価格（任意）</span><input id="candidate-price" type="number" min="0" step="1" inputmode="numeric" placeholder="9800" /></label>
+              <label class="field"><span>お店（任意）</span><input id="candidate-store" placeholder="店舗・ブランド名" /></label>
+            </div>
+            <div class="item-analysis-summary" id="candidate-analysis-summary" aria-live="polite">
+              <span aria-hidden="true">✦</span>
+              <p><strong>写真を選ぶと仮判定します</strong><small>候補保存後すぐに手持ち服との3案を表示します</small></p>
+            </div>
+          </div>
+        </div>
+
+        <div class="dialog-actions">
+          <button class="secondary-button" type="button" data-close-candidate-dialog>キャンセル</button>
+          <button class="primary-button" id="save-candidate" type="submit">候補にして3案を見る</button>
+        </div>
+      </form>
+    </dialog>
 
     <dialog class="item-dialog" id="item-dialog">
       <form class="dialog-card" id="item-form">
@@ -430,6 +521,6 @@
     <div class="toast" id="toast" role="status"></div>
     <script src="supabase-config.js?v=1"></script>
     <script src="cloud-sync.js?v=2"></script>
-    <script src="app.js?v=10"></script>
+    <script src="app.js?v=11"></script>
   </body>
 </html>

@@ -1,4 +1,4 @@
-/* 更新意図: 店頭で撮影した購入候補と手持ち服の3コーデ比較、購入後の本登録をスマホで完結できるUIを追加。処理日時: 2026-10-01 JST */
+/* 更新意図: 購入候補ごとの良質なコーデ案数と手持ち服との相性シグナルをスマホでも比較できるUIへ拡張。処理日時: 2026-10-01 JST */
 :root {
   --ink: #252923;
   --muted: #73766e;
@@ -216,6 +216,15 @@ input[type="range"] { width: 100%; accent-color: var(--sage); }
 .candidate-recommendations-heading .eyebrow { margin-bottom: 4px; }
 .candidate-recommendations-heading h3 { margin: 0; font-size: 17px; }
 .candidate-recommendations-heading > span { padding: 6px 9px; border-radius: 999px; background: var(--sage-soft); color: var(--sage-dark); font-size: 9px; font-weight: 700; }
+.candidate-fit-signal { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; padding: 11px 12px; border-radius: 11px; background: var(--sage-soft); color: var(--sage-dark); }
+.candidate-fit-signal > span { width: 28px; height: 28px; display: grid; flex: 0 0 auto; place-items: center; border-radius: 50%; background: rgba(255,255,255,.72); font-size: 11px; font-weight: 700; }
+.candidate-fit-signal p { display: grid; gap: 2px; margin: 0; }
+.candidate-fit-signal strong { font-size: 11px; }
+.candidate-fit-signal small { color: #687165; font-size: 9px; line-height: 1.5; }
+.candidate-fit-signal[data-tone="limited"] { background: #f1e8d6; color: #775f36; }
+.candidate-fit-signal[data-tone="limited"] small { color: #766a50; }
+.candidate-fit-signal[data-tone="none"] { background: #f1e4df; color: #8a4f41; }
+.candidate-fit-signal[data-tone="none"] small { color: #7f665f; }
 .candidate-outfits { display: grid; gap: 10px; }
 .candidate-outfit { display: grid; grid-template-columns: minmax(125px, .55fr) minmax(190px, 1fr); gap: 11px 15px; padding: 13px; border: 1px solid var(--line); border-radius: 13px; background: #fff; }
 .candidate-outfit-top { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; gap: 12px; }

@@ -1,8 +1,10 @@
-/* 更新意図: 店頭で撮影した服を購入候補として仮登録し、手持ち服との3コーデ比較から購入後の本登録までつなぐ。処理日時: 2026-10-01 JST */
+/* 更新意図: 購入候補のコーデを品質基準付きで最大10案まで提示し、案数自体を手持ち服との相性判断に使えるようにする。処理日時: 2026-10-01 JST */
 const DB_NAME = "kinari-closet";
 const DB_VERSION = 2;
 const SETTINGS_KEY = "kinari-stylist-settings";
 const PREFERENCE_HALF_LIFE_DAYS = 120;
+const MAX_CANDIDATE_OUTFITS = 10;
+const CANDIDATE_QUALITY = Object.freeze({ score: 62, practical: 50, harmony: 58 });
 const RETIRED_SAMPLE_IDS = new Set([
   "sample-bottoms-04",
   "sample-onepiece-01",
@@ -745,7 +747,7 @@ function updateCandidateAnalysisSummary() {
   const profile = candidateDefaults(category, color, name);
   $("#candidate-analysis-summary").innerHTML = `
     <span aria-hidden="true">✦</span>
-    <p><strong>${labels.color[color]}・${labels.category[category]}・${labels.style[profile.style]}</strong><small>この候補を必ず含む3コーデを手持ち服から探します</small></p>`;
+    <p><strong>${labels.color[color]}・${labels.category[category]}・${labels.style[profile.style]}</strong><small>この候補を必ず含む、相性のよいコーデを最大10案まで探します</small></p>`;
 }
 
 function applyQuickCandidateInference({ filename = "", updateName = true } = {}) {
@@ -763,7 +765,7 @@ function resetCandidateForm() {
   $("#candidate-photo-preview").hidden = true;
   $("#candidate-photo-placeholder").hidden = false;
   $("#candidate-analysis-hint").textContent = "写真はAPIへ送らず、この端末内で軽量化します。";
-  $("#candidate-analysis-summary").innerHTML = `<span aria-hidden="true">✦</span><p><strong>写真を選ぶと仮判定します</strong><small>候補保存後すぐに手持ち服との3案を表示します</small></p>`;
+  $("#candidate-analysis-summary").innerHTML = `<span aria-hidden="true">✦</span><p><strong>写真を選ぶと仮判定します</strong><small>品質基準を満たす組み合わせだけを最大10案まで表示します</small></p>`;
   revokePhotoURL(currentCandidatePhotoUrl);
   currentCandidatePhoto = null;
   currentCandidatePhotoUrl = null;
@@ -811,7 +813,7 @@ async function saveCandidate(event) {
     $("#candidate-dialog").close();
     renderCandidates();
     switchView("shopping");
-    showToast("購入候補に追加し、手持ち服との3案を作りました");
+    showToast("購入候補に追加し、相性のよい組み合わせを探しました");
   } catch (error) {
     console.error("購入候補の保存に失敗しました", error);
     showToast("購入候補を保存できませんでした。もう一度お試しください");
@@ -1062,7 +1064,9 @@ function candidateMeta(candidate) {
 
 function renderCandidateOutfit(outfit, candidateId, index) {
   const companionItems = outfit.items.filter((item) => item.id !== candidateId);
-  const roleLabel = { balanced: "いちばんおすすめ", personal: "あなたらしさ重視", harmony: "まとまり重視", trend: "今季らしさ重視" }[outfit.role] || "おすすめ";
+  const roleLabel = index === 0 ? "いちばんおすすめ" : {
+    practical: "使いやすさ重視", preference: "あなたらしさ重視", harmony: "まとまり重視", trend: "今季らしさ重視",
+  }[outfit.role] || "おすすめ";
   const strongest = Object.entries(outfit.components).sort((a, b) => b[1] - a[1])[0];
   const reasonLabel = { practical: "使いやすさ", preference: "好みとの近さ", harmony: "服同士の相性", trend: "今季らしさ" }[strongest[0]];
   return `
@@ -1073,12 +1077,20 @@ function renderCandidateOutfit(outfit, candidateId, index) {
     </article>`;
 }
 
+function candidateCompatibility(count) {
+  if (count >= 8) return { tone: "high", title: "手持ち服とかなり合わせやすい候補です", detail: `${count}通りの良質な組み合わせが見つかりました。` };
+  if (count >= 4) return { tone: "good", title: "手持ち服と合わせやすい候補です", detail: `${count}通りの良質な組み合わせが見つかりました。` };
+  if (count >= 1) return { tone: "limited", title: "合うコーデ案は少なめです", detail: `品質基準を満たしたのは${count}通り。購入前に着回しやすさを確認しましょう。` };
+  return { tone: "none", title: "相性のよいコーデ案が見つかりません", detail: "無理に案を作らず、今の手持ち服とは合わせにくい候補として表示しています。" };
+}
+
 function renderCandidates() {
   const active = purchaseCandidates.filter((candidate) => candidate.status === "active").sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   const history = purchaseCandidates.filter((candidate) => candidate.status !== "active").sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   $("#candidate-count").textContent = `${active.length}点`;
   $("#candidate-list").innerHTML = active.length ? active.map((candidate) => {
     const outfits = candidateOutfits(candidate);
+    const compatibility = candidateCompatibility(outfits.length);
     return `
       <article class="candidate-card">
         <div class="candidate-item">
@@ -1094,10 +1106,11 @@ function renderCandidates() {
           </div>
         </div>
         <div class="candidate-recommendations">
-          <div class="candidate-recommendations-heading"><div><p class="eyebrow">WITH MY CLOSET</p><h3>手持ち服と組めるコーデ</h3></div><span>${outfits.length}案</span></div>
+          <div class="candidate-recommendations-heading"><div><p class="eyebrow">WITH MY CLOSET</p><h3>手持ち服と組めるコーデ</h3></div><span>${outfits.length} / 最大${MAX_CANDIDATE_OUTFITS}案</span></div>
+          <div class="candidate-fit-signal" data-tone="${compatibility.tone}"><span aria-hidden="true">${outfits.length >= 4 ? "◎" : outfits.length ? "△" : "×"}</span><p><strong>${compatibility.title}</strong><small>${compatibility.detail}</small></p></div>
           ${outfits.length
             ? `<div class="candidate-outfits">${outfits.map((outfit, index) => renderCandidateOutfit(outfit, candidate.id, index)).join("")}</div>`
-            : `<div class="candidate-no-outfits"><strong>この候補を含む組み合わせをまだ作れません</strong><span>トップス＋ボトムスと靴を着用可能な状態で登録すると提案できます。</span></div>`}
+            : `<div class="candidate-no-outfits"><strong>品質基準を満たす組み合わせはありません</strong><span>手持ちのカテゴリが不足しているか、この候補と実用性・相性のよい案が見つかりませんでした。</span></div>`}
         </div>
       </article>`;
   }).join("") : `
@@ -1335,6 +1348,33 @@ function selectDiverse(candidates) {
   return selected;
 }
 
+function outfitSimilarity(first, second) {
+  const firstIds = new Set(first.items.map((item) => item.id));
+  const secondIds = new Set(second.items.map((item) => item.id));
+  const overlap = [...firstIds].filter((id) => secondIds.has(id)).length;
+  return overlap / Math.max(1, new Set([...firstIds, ...secondIds]).size);
+}
+
+function selectQualityCandidateOutfits(candidates, limit = MAX_CANDIDATE_OUTFITS) {
+  const remaining = candidates.filter((outfit) => (
+    outfit.score >= CANDIDATE_QUALITY.score
+    && outfit.components.practical >= CANDIDATE_QUALITY.practical
+    && outfit.components.harmony >= CANDIDATE_QUALITY.harmony
+  ));
+  const selected = [];
+  while (remaining.length && selected.length < limit) {
+    remaining.sort((first, second) => {
+      const firstSimilarity = selected.length ? Math.max(...selected.map((picked) => outfitSimilarity(first, picked))) : 0;
+      const secondSimilarity = selected.length ? Math.max(...selected.map((picked) => outfitSimilarity(second, picked))) : 0;
+      return (second.score - secondSimilarity * 12) - (first.score - firstSimilarity * 12);
+    });
+    const next = remaining.shift();
+    const strongestComponent = Object.entries(next.components).sort((a, b) => b[1] - a[1])[0][0];
+    selected.push({ ...next, role: strongestComponent });
+  }
+  return selected;
+}
+
 function candidateOutfits(candidate) {
   const settings = readStylistSettings();
   const conditions = {
@@ -1348,7 +1388,7 @@ function candidateOutfits(candidate) {
   const previewItem = { ...candidate, status: "ready", isPurchaseCandidate: true };
   const sourceItems = [...items.filter((item) => item.status === "ready"), previewItem];
   const matching = generateCandidates(conditions, sourceItems).filter((outfit) => outfit.items.some((item) => item.id === candidate.id));
-  return selectDiverse(matching).slice(0, 3);
+  return selectQualityCandidateOutfits(matching);
 }
 
 function outfitReason(outfit) {

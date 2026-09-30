@@ -107,7 +107,12 @@ function openDB() {
       if (!database.objectStoreNames.contains("feedback")) database.createObjectStore("feedback", { keyPath: "id" });
       if (!database.objectStoreNames.contains("candidates")) database.createObjectStore("candidates", { keyPath: "id" });
     };
-    request.onsuccess = () => resolve(request.result);
+    request.onblocked = () => showToast("KINARIを開いている別のタブを閉じて、このページを再読み込みしてください");
+    request.onsuccess = () => {
+      const database = request.result;
+      database.onversionchange = () => database.close();
+      resolve(database);
+    };
     request.onerror = () => reject(request.error);
   });
 }

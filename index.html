@@ -15,10 +15,10 @@
       href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Noto+Sans+JP:wght@400;500;600;700&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="styles.css?v=8" />
+    <link rel="stylesheet" href="styles.css?v=9" />
   </head>
   <body>
-    <!-- 更新意図: 端末内保存を維持しつつ、任意ログインによるSupabase端末間同期を追加。処理日時: 2026-09-29 JST -->
+    <!-- 更新意図: コーデ提案から匿名モデルのAI着用イメージを生成できる第一段階を追加。処理日時: 2026-09-30 JST -->
     <div class="app-shell">
       <aside class="sidebar" aria-label="メインナビゲーション">
         <a class="brand" href="#home" aria-label="KINARI ホーム">
@@ -386,9 +386,50 @@
       </div>
     </dialog>
 
+    <dialog class="item-dialog look-dialog" id="look-dialog">
+      <div class="dialog-card">
+        <div class="dialog-heading">
+          <div>
+            <p class="eyebrow">AI OUTFIT PREVIEW</p>
+            <h2>着用イメージを作る</h2>
+          </div>
+          <button class="icon-button" type="button" data-close-look-dialog aria-label="閉じる">×</button>
+        </div>
+
+        <section id="look-setup">
+          <p class="look-lead">選んだ服を、顔の映らない匿名モデルが着たカタログ風イメージにします。</p>
+          <div class="look-reference-list" id="look-reference-list"></div>
+          <div class="look-notice">
+            <span aria-hidden="true">✦</span>
+            <p><strong>AIによるイメージ画像です</strong><small>服の色や柄をできるだけ保ちますが、実物のサイズ感・細部・着用感を正確に再現するものではありません。生成は1日3回までです。</small></p>
+          </div>
+        </section>
+
+        <section class="look-loading" id="look-loading" hidden aria-live="polite">
+          <span class="look-spinner" aria-hidden="true"></span>
+          <strong>着用イメージを作っています</strong>
+          <p>通常は30秒〜2分ほどかかります。この画面を開いたままお待ちください。</p>
+        </section>
+
+        <section class="look-result" id="look-result" hidden>
+          <figure>
+            <img id="look-result-image" alt="AIが生成した匿名モデルの着用イメージ" />
+            <figcaption>AI着用イメージ</figcaption>
+          </figure>
+          <p id="look-result-note">完成画像はログイン中の本人専用領域へ保存しました。</p>
+        </section>
+
+        <p class="look-message" id="look-message" role="status"></p>
+        <div class="dialog-actions">
+          <button class="secondary-button" type="button" data-close-look-dialog>キャンセル</button>
+          <button class="primary-button" id="generate-look" type="button">AIイメージを生成</button>
+        </div>
+      </div>
+    </dialog>
+
     <div class="toast" id="toast" role="status"></div>
     <script src="supabase-config.js?v=1"></script>
-    <script src="cloud-sync.js?v=1"></script>
-    <script src="app.js?v=9"></script>
+    <script src="cloud-sync.js?v=2"></script>
+    <script src="app.js?v=10"></script>
   </body>
 </html>

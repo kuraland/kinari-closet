@@ -1,4 +1,4 @@
-/* 更新意図: 服登録を写真・名前・カテゴリ・色中心へ簡略化し、残りの属性を自動仮入力。処理日時: 2026-09-30 JST */
+/* 更新意図: コーデ提案から匿名モデルのAI着用イメージを安全に生成する第一段階を追加。処理日時: 2026-09-30 JST */
 const DB_NAME = "kinari-closet";
 const DB_VERSION = 1;
 const SETTINGS_KEY = "kinari-stylist-settings";
@@ -88,6 +88,8 @@ let toastTimer;
 let cloudUser = null;
 let cloudSyncPromise = null;
 let cloudSyncTimer = null;
+let pendingLook = null;
+let lookGenerationInProgress = false;
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
@@ -732,6 +734,114 @@ function itemPhotoMarkup(item, alt = true) {
   return `<svg viewBox="0 0 100 100" role="img" aria-label="${escapeHTML(item.name)}" xmlns="http://www.w3.org/2000/svg"><rect width="100" height="100" fill="${fill.startsWith("#") ? fill : "#b89b83"}"/><path d="M27 28 40 20h20l13 8 12 21-13 8-6-11v38H34V46l-6 11-13-8 12-21Z" fill="rgba(255,255,255,.35)" stroke="rgba(30,30,30,.18)"/></svg>`;
 }
 
+async function itemPhotoDataUrl(item) {
+  if (!item.photo) throw new Error(`「${item.name}」に写真がありません。服の編集から写真を追加してください`);
+  let blob;
+  if (item.photo instanceof Blob) {
+    blob = item.photo;
+  } else if (typeof item.photo === "string" && item.photo.startsWith("data:image/")) {
+    return item.photo;
+  } else {
+    const response = await fetch(item.photo);
+    if (!response.ok) throw new Error(`「${item.name}」の写真を読み込めませんでした`);
+    blob = await response.blob();
+  }
+
+  const bitmap = await loadPhoto(blob);
+  const max = 768;
+  const ratio = Math.min(1, max / Math.max(bitmap.width, bitmap.height));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(bitmap.width * ratio));
+  canvas.height = Math.max(1, Math.round(bitmap.height * ratio));
+  canvas.getContext("2d").drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  const dataUrl = canvas.toDataURL("image/jpeg", .82);
+  if (typeof bitmap.close === "function") bitmap.close();
+  return dataUrl;
+}
+
+function resetLookDialog() {
+  if (lookGenerationInProgress) return;
+  pendingLook = null;
+  $("#look-setup").hidden = false;
+  $("#look-loading").hidden = true;
+  $("#look-result").hidden = true;
+  $("#look-message").textContent = "";
+  $("#look-result-image").removeAttribute("src");
+  $("#generate-look").hidden = false;
+  $("#generate-look").disabled = false;
+  $("#generate-look").textContent = "AIイメージを生成";
+  const cancel = $('[data-close-look-dialog]', $("#look-dialog .dialog-actions"));
+  if (cancel) cancel.textContent = "キャンセル";
+}
+
+function openLookDialog(outfitId) {
+  if (!window.KinariCloud?.isConfigured()) {
+    showToast("着用イメージ生成にはクラウド設定が必要です");
+    renderCloudDialog();
+    $("#cloud-dialog").showModal();
+    return;
+  }
+  if (!cloudUser) {
+    renderCloudDialog();
+    $("#cloud-message").textContent = "着用イメージを作るにはログインしてください。";
+    $("#cloud-dialog").showModal();
+    return;
+  }
+  const outfit = JSON.parse($("#outfit-results").dataset.outfits || "[]").find((entry) => entry.id === outfitId);
+  if (!outfit) return;
+  const outfitItems = outfit.itemIds.map((id) => items.find((item) => item.id === id)).filter(Boolean);
+  resetLookDialog();
+  pendingLook = { ...outfit, items: outfitItems };
+  $("#look-reference-list").innerHTML = outfitItems.map((item) => `
+    <article class="look-reference"><div>${itemPhotoMarkup(item)}</div><p>${escapeHTML(item.name)}</p></article>
+  `).join("");
+  $("#look-dialog").showModal();
+}
+
+async function generateLookPreview() {
+  if (!pendingLook || lookGenerationInProgress) return;
+  const button = $("#generate-look");
+  const closeButtons = $$('[data-close-look-dialog]', $("#look-dialog"));
+  lookGenerationInProgress = true;
+  button.disabled = true;
+  closeButtons.forEach((node) => { node.disabled = true; });
+  $("#look-setup").hidden = true;
+  $("#look-loading").hidden = false;
+  $("#look-result").hidden = true;
+  $("#look-message").textContent = "";
+
+  try {
+    const generatedItems = await Promise.all(pendingLook.items.map(async (item) => ({
+      id: item.id,
+      name: item.name,
+      category: item.category,
+      color: labels.color[item.color] || item.color,
+      imageDataUrl: await itemPhotoDataUrl(item),
+    })));
+    const result = await window.KinariCloud.generateLook({
+      items: generatedItems,
+      conditions: pendingLook.conditions,
+    });
+    $("#look-result-image").src = result.imageUrl;
+    $("#look-result-note").textContent = `本人専用領域へ保存しました。本日はあと${result.remaining}回生成できます。`;
+    $("#look-loading").hidden = true;
+    $("#look-result").hidden = false;
+    button.hidden = true;
+    const cancel = $('[data-close-look-dialog]', $("#look-dialog .dialog-actions"));
+    if (cancel) cancel.textContent = "閉じる";
+    showToast("AI着用イメージを作成しました");
+  } catch (error) {
+    console.error("着用イメージの生成に失敗しました", error);
+    $("#look-loading").hidden = true;
+    $("#look-setup").hidden = false;
+    $("#look-message").textContent = error.message || "画像を生成できませんでした";
+    button.disabled = false;
+  } finally {
+    lookGenerationInProgress = false;
+    closeButtons.forEach((node) => { node.disabled = false; });
+  }
+}
+
 function renderStats() {
   const active = items.filter((item) => item.status !== "archived");
   const currentMonth = new Date().toISOString().slice(0, 7);
@@ -1033,7 +1143,10 @@ function renderOutfits(outfits, conditions) {
           <span><small>今季らしさ</small><strong>${outfit.components.trend}</strong></span>
         </div>
         <p class="outfit-reason">${escapeHTML(outfitReason(outfit))}</p>
-        <div class="feedback-row" data-outfit-id="${outfit.id}"><span>評価するほど、色・柄・形の好みを学習します</span><button data-feedback="like">♡ 好き</button><button data-feedback="dislike">合わない</button><button data-feedback="worn">着た</button></div>
+        <div class="outfit-actions">
+          <button class="secondary-button look-button" type="button" data-generate-look="${outfit.id}"><span aria-hidden="true">✦</span>この服で着用イメージを作る</button>
+          <div class="feedback-row" data-outfit-id="${outfit.id}"><span>評価するほど、色・柄・形の好みを学習します</span><button data-feedback="like">♡ 好き</button><button data-feedback="dislike">合わない</button><button data-feedback="worn">着た</button></div>
+        </div>
       </article>`).join("")}</div>`;
   results.dataset.outfits = JSON.stringify(outfits.map((outfit) => ({ id: outfit.id, itemIds: outfit.items.map((item) => item.id), conditions })));
 }
@@ -1122,6 +1235,8 @@ function bindEvents() {
     const closeDialog = event.target.closest("[data-close-item-dialog]");
     const openCloud = event.target.closest("[data-open-cloud-dialog]");
     const closeCloud = event.target.closest("[data-close-cloud-dialog]");
+    const generateLook = event.target.closest("[data-generate-look]");
+    const closeLook = event.target.closest("[data-close-look-dialog]");
     if (opener) openItemDialog();
     if (edit) openItemDialog(items.find((item) => item.id === edit.dataset.editItem));
     if (archive) archiveItem(archive.dataset.archiveItem);
@@ -1131,6 +1246,8 @@ function bindEvents() {
     if (closeDialog) $("#item-dialog").close();
     if (openCloud) { renderCloudDialog(); $("#cloud-dialog").showModal(); }
     if (closeCloud) $("#cloud-dialog").close();
+    if (generateLook) openLookDialog(generateLook.dataset.generateLook);
+    if (closeLook && !lookGenerationInProgress) $("#look-dialog").close();
   });
   $("#mobile-menu").addEventListener("click", () => $(".sidebar").classList.toggle("is-open"));
   $("#closet-search").addEventListener("input", renderCloset);
@@ -1186,6 +1303,11 @@ function bindEvents() {
   });
   $("#item-form").addEventListener("submit", saveItem);
   $("#item-dialog").addEventListener("close", resetItemForm);
+  $("#generate-look").addEventListener("click", generateLookPreview);
+  $("#look-dialog").addEventListener("close", resetLookDialog);
+  $("#look-dialog").addEventListener("cancel", (event) => {
+    if (lookGenerationInProgress) event.preventDefault();
+  });
   $("#condition-form").addEventListener("submit", (event) => {
     event.preventDefault();
     const form = new FormData(event.currentTarget);

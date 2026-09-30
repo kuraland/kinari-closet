@@ -1,4 +1,4 @@
-/* 更新意図: 服の簡単登録と折りたたみ式詳細設定を、スマホでも迷わず操作できる構成へ変更。処理日時: 2026-09-30 JST */
+/* 更新意図: コーデカードから匿名モデルのAI着用イメージを確認・生成できるスマホ対応UIを追加。処理日時: 2026-09-30 JST */
 :root {
   --ink: #252923;
   --muted: #73766e;
@@ -182,6 +182,10 @@ input[type="range"] { width: 100%; accent-color: var(--sage); }
 .score-breakdown small { color: var(--muted); font-size: 11px; }
 .score-breakdown strong { color: var(--sage-dark); font-size: 15px; }
 .outfit-reason { margin: 15px 0 13px; padding: 11px 13px; border-radius: 10px; background: #f6f3ec; color: #60635d; font-size: 10px; line-height: 1.7; }
+.outfit-actions { display: grid; gap: 11px; }
+.look-button { width: 100%; padding: 11px 14px; border-color: #b8c3b4; background: var(--sage-soft); color: var(--sage-dark); font-weight: 700; }
+.look-button:hover { border-color: #94a38f; background: #dbe5d6; }
+.look-button span { margin-right: 6px; }
 .feedback-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
 .feedback-row > span { margin-right: auto; color: var(--muted); font-size: 9px; }
 .feedback-row button { padding: 6px 9px; border: 1px solid var(--line); background: white; border-radius: 8px; cursor: pointer; font-size: 9px; }
@@ -233,6 +237,30 @@ input[type="range"] { width: 100%; accent-color: var(--sage); }
 .cloud-panel code { word-break: break-word; }
 .cloud-message { min-height: 18px; color: var(--sage-dark) !important; }
 .cloud-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 9px; }
+.look-dialog { width: min(680px, calc(100% - 24px)); }
+.look-lead { margin-bottom: 17px; color: var(--muted); font-size: 12px; line-height: 1.7; }
+.look-reference-list { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 9px; }
+.look-reference { min-width: 0; }
+.look-reference div { aspect-ratio: 1; overflow: hidden; border-radius: 11px; background: #eeeae0; }
+.look-reference img, .look-reference svg { width: 100%; height: 100%; object-fit: cover; }
+.look-reference p { overflow: hidden; margin: 6px 2px 0; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.look-notice { display: flex; gap: 11px; margin-top: 18px; padding: 14px; border-radius: 12px; background: var(--sage-soft); color: var(--sage-dark); }
+.look-notice > span { width: 28px; height: 28px; display: grid; flex: 0 0 auto; place-items: center; border-radius: 50%; background: white; }
+.look-notice p { display: grid; gap: 4px; margin: 0; }
+.look-notice strong { font-size: 11px; }
+.look-notice small { color: #687165; font-size: 9px; line-height: 1.6; }
+.look-loading { min-height: 330px; align-content: center; justify-items: center; text-align: center; }
+.look-loading:not([hidden]) { display: grid; }
+.look-loading strong { margin-top: 18px; font-size: 16px; }
+.look-loading p { max-width: 360px; margin: 8px 0 0; color: var(--muted); font-size: 11px; line-height: 1.7; }
+.look-spinner { width: 48px; height: 48px; border: 4px solid var(--sage-soft); border-top-color: var(--sage); border-radius: 50%; animation: look-spin .9s linear infinite; }
+@keyframes look-spin { to { transform: rotate(360deg); } }
+.look-result { text-align: center; }
+.look-result figure { position: relative; overflow: hidden; width: min(100%, 420px); margin: 0 auto; border-radius: 15px; background: #eeeae0; }
+.look-result img { display: block; width: 100%; aspect-ratio: 2 / 3; object-fit: cover; }
+.look-result figcaption { position: absolute; right: 10px; bottom: 10px; padding: 6px 9px; border-radius: 999px; background: rgba(37, 41, 35, .78); color: white; font-size: 9px; }
+.look-result > p { margin: 12px 0 0; color: var(--muted); font-size: 10px; }
+.look-message { min-height: 17px; margin: 13px 0 0; color: #9c503d; font-size: 10px; line-height: 1.6; }
 .toast { position: fixed; right: 24px; bottom: 24px; z-index: 50; max-width: 320px; padding: 13px 17px; background: #2e352c; color: white; border-radius: 10px; box-shadow: var(--shadow); font-size: 11px; opacity: 0; transform: translateY(12px); pointer-events: none; transition: .24s ease; }
 .toast.is-visible { opacity: 1; transform: translateY(0); }
 
@@ -268,6 +296,9 @@ input[type="range"] { width: 100%; accent-color: var(--sage); }
   .field.full { grid-column: auto; }
   .dialog-card { padding: 22px 18px; }
   .cloud-actions { display: grid; grid-template-columns: 1fr; }
+  .look-reference-list { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .look-dialog .dialog-actions { display: grid; grid-template-columns: 1fr; }
+  .look-dialog .dialog-actions button { width: 100%; }
   .outfit-items { grid-template-columns: repeat(3, 1fr); }
   .score-breakdown { grid-template-columns: repeat(2, 1fr); }
   .weight-grid { grid-template-columns: repeat(2, 1fr); }

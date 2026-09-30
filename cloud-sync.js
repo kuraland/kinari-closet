@@ -1,4 +1,4 @@
-/* 追加意図: IndexedDBを残したまま、認証済みユーザーの服・写真・評価・設定をSupabaseへ同期する。処理日時: 2026-09-29 JST */
+/* 更新意図: 端末間同期に加え、認証済みユーザーだけが匿名モデルのAI着用イメージ生成を呼び出せるようにする。処理日時: 2026-09-30 JST */
 (function attachKinariCloud(root) {
   const STORAGE_BUCKET = "garment-images";
   const SDK_URL = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2";
@@ -177,6 +177,21 @@
     currentUser = null;
   }
 
+  async function generateLook(payload) {
+    requireClient();
+    const result = await client.functions.invoke("generate-look", { body: payload });
+    if (result.error) {
+      const context = result.error.context;
+      let body = null;
+      try { body = await context?.json?.(); } catch { body = null; }
+      const error = new Error(body?.message || result.error.message || "着用イメージを生成できません");
+      error.code = body?.error || "GENERATION_FAILED";
+      error.remaining = body?.remaining;
+      throw error;
+    }
+    return result.data;
+  }
+
   async function uploadPhoto(item, userId, previousPath) {
     if (!(item.photo instanceof Blob)) return previousPath || item.photoPath || null;
     const extension = item.photo.type === "image/png" ? "png" : "jpg";
@@ -292,6 +307,7 @@
     signUp,
     signIn,
     signOut,
+    generateLook,
     syncAll,
     getUser: () => currentUser,
     __test: { isoTime, isLocalNewer, toGarmentRow, fromGarmentRow, toFeedbackRow, fromFeedbackRow },

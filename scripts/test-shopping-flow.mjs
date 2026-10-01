@@ -1,4 +1,4 @@
-/* 更新意図: 購入候補を必ず含む良質なコーデだけを最大10案まで生成し、基準未満を水増ししないことを回帰確認する。処理日時: 2026-10-01 JST */
+/* 更新意図: カメラ・ライブラリ両方の購入候補写真入力と、良質なコーデだけを最大10案まで生成することを回帰確認する。処理日時: 2026-10-01 JST */
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
@@ -11,10 +11,12 @@ const html = fs.readFileSync(path.join(root, "index.html"), "utf8");
 
 for (const id of [
   "view-shopping", "candidate-list", "candidate-history", "candidate-dialog", "candidate-form",
-  "candidate-photo", "candidate-name", "candidate-category", "candidate-color", "save-candidate",
+  "candidate-camera-photo", "candidate-photo", "candidate-name", "candidate-category", "candidate-color", "save-candidate",
 ]) {
   assert.match(html, new RegExp(`id=["']${id}["']`), `${id} がHTMLに必要です`);
 }
+assert.match(html, /id="candidate-camera-photo"[^>]+capture="environment"/, "カメラ入力には背面カメラ指定が必要です");
+assert.match(html, /id="candidate-photo"[^>]+accept="image\/\*"(?![^>]+capture)/, "ライブラリ入力にはcapture指定を付けないでください");
 
 const context = vm.createContext({
   console,

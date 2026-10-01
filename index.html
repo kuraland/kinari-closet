@@ -15,10 +15,10 @@
       href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Noto+Sans+JP:wght@400;500;600;700&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="styles.css?v=11" />
+    <link rel="stylesheet" href="styles.css?v=12" />
   </head>
   <body>
-    <!-- 更新意図: 購入候補のコーデを品質基準付きで最大10案まで提示し、案数から手持ち服との相性を判断できるようにする。処理日時: 2026-10-01 JST -->
+    <!-- 更新意図: 購入候補の写真をスマホのカメラ撮影と写真ライブラリのどちらからでも明示的に選べるようにする。処理日時: 2026-10-01 JST -->
     <div class="app-shell">
       <aside class="sidebar" aria-label="メインナビゲーション">
         <a class="brand" href="#home" aria-label="KINARI ホーム">
@@ -288,14 +288,23 @@
 
         <div class="item-form-grid">
           <div>
-            <label class="photo-drop candidate-photo-drop">
-              <input id="candidate-photo" type="file" accept="image/*" capture="environment" required />
+            <div class="photo-drop candidate-photo-drop">
               <img id="candidate-photo-preview" alt="購入候補のプレビュー" hidden />
               <span id="candidate-photo-placeholder">
-                <strong>＋ 店頭で撮る</strong>
-                <small>写真ライブラリから選ぶこともできます</small>
+                <strong>写真を追加</strong>
+                <small>撮影するか、保存済みの写真を選べます</small>
               </span>
-            </label>
+            </div>
+            <div class="candidate-photo-sources" aria-label="購入候補の写真を追加">
+              <label class="candidate-source-button camera-source">
+                <span aria-hidden="true">◎</span> カメラで撮る
+                <input id="candidate-camera-photo" type="file" accept="image/*" capture="environment" />
+              </label>
+              <label class="candidate-source-button library-source">
+                <span aria-hidden="true">▧</span> ライブラリから選ぶ
+                <input id="candidate-photo" type="file" accept="image/*" />
+              </label>
+            </div>
             <p class="analysis-hint" id="candidate-analysis-hint">写真はAPIへ送らず、この端末内で軽量化します。</p>
           </div>
 
@@ -521,6 +530,6 @@
     <div class="toast" id="toast" role="status"></div>
     <script src="supabase-config.js?v=1"></script>
     <script src="cloud-sync.js?v=2"></script>
-    <script src="app.js?v=13"></script>
+    <script src="app.js?v=14"></script>
   </body>
 </html>

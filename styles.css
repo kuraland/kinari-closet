@@ -1,4 +1,4 @@
-/* 更新意図: 購入候補ごとの良質なコーデ案数と手持ち服との相性シグナルをスマホでも比較できるUIへ拡張。処理日時: 2026-10-01 JST */
+/* 更新意図: 購入候補の写真をカメラ撮影と写真ライブラリから明示的に選べるスマホ向け入力UIへ変更。処理日時: 2026-10-01 JST */
 :root {
   --ink: #252923;
   --muted: #73766e;
@@ -253,7 +253,12 @@ input[type="range"] { width: 100%; accent-color: var(--sage); }
 .candidate-history-item p { display: grid; gap: 3px; margin: 0; }
 .candidate-history-item strong { overflow: hidden; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .candidate-history-item small { color: var(--muted); font-size: 9px; }
-.candidate-photo-drop { max-height: 390px; }
+.candidate-photo-drop { max-height: 390px; cursor: default; }
+.candidate-photo-sources { display: grid; gap: 8px; margin-top: 10px; }
+.candidate-source-button { position: relative; display: flex; align-items: center; justify-content: center; gap: 7px; min-height: 42px; padding: 10px 12px; overflow: hidden; border: 1px solid var(--line); border-radius: 10px; background: #fff; color: var(--sage-dark); cursor: pointer; font-size: 10px; font-weight: 700; }
+.candidate-source-button.camera-source { border-color: var(--sage); background: var(--sage); color: #fff; }
+.candidate-source-button:hover { border-color: #9caa98; transform: translateY(-1px); }
+.candidate-source-button input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
 
 .item-dialog { width: min(900px, calc(100% - 24px)); max-height: calc(100vh - 24px); padding: 0; border: 0; border-radius: 20px; background: transparent; box-shadow: 0 30px 90px rgba(28,30,26,.25); }
 .item-dialog::backdrop { background: rgba(37,41,35,.45); backdrop-filter: blur(4px); }

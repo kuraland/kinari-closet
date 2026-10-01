@@ -1,4 +1,4 @@
-/* 更新意図: 購入候補のコーデを品質基準付きで最大10案まで提示し、案数自体を手持ち服との相性判断に使えるようにする。処理日時: 2026-10-01 JST */
+/* 更新意図: 購入候補の写真をスマホのカメラ撮影と写真ライブラリのどちらからでも明示的に選べるようにする。処理日時: 2026-10-01 JST */
 const DB_NAME = "kinari-closet";
 const DB_VERSION = 2;
 const SETTINGS_KEY = "kinari-stylist-settings";
@@ -775,6 +775,27 @@ function resetCandidateForm() {
 function openCandidateDialog() {
   resetCandidateForm();
   $("#candidate-dialog").showModal();
+}
+
+async function loadCandidatePhoto(file) {
+  if (!file) return;
+  $("#candidate-analysis-hint").textContent = "写真を端末内で軽量化し、色を確認しています…";
+  try {
+    const { blob, detectedColor } = await compressAndAnalyze(file);
+    currentCandidatePhoto = blob;
+    revokePhotoURL(currentCandidatePhotoUrl);
+    currentCandidatePhotoUrl = objectURL(blob);
+    $("#candidate-photo-preview").src = currentCandidatePhotoUrl;
+    $("#candidate-photo-preview").hidden = false;
+    $("#candidate-photo-placeholder").hidden = true;
+    $("#candidate-color").value = colorFromName(file.name) || detectedColor;
+    $("#candidate-category").value = categoryFromName(file.name);
+    applyQuickCandidateInference({ filename: file.name });
+    $("#candidate-analysis-hint").textContent = "写真から仮入力しました。違うところだけ修正してください。";
+  } catch (error) {
+    console.error(error);
+    $("#candidate-analysis-hint").textContent = "画像を読み込めませんでした。別の写真をお試しください。";
+  }
 }
 
 async function saveCandidate(event) {
@@ -1570,26 +1591,8 @@ function bindEvents() {
       showToast(error.message);
     }
   });
-  $("#candidate-photo").addEventListener("change", async (event) => {
-    const file = event.target.files[0];
-    if (!file) return;
-    $("#candidate-analysis-hint").textContent = "写真を端末内で軽量化し、色を確認しています…";
-    try {
-      const { blob, detectedColor } = await compressAndAnalyze(file);
-      currentCandidatePhoto = blob;
-      revokePhotoURL(currentCandidatePhotoUrl);
-      currentCandidatePhotoUrl = objectURL(blob);
-      $("#candidate-photo-preview").src = currentCandidatePhotoUrl;
-      $("#candidate-photo-preview").hidden = false;
-      $("#candidate-photo-placeholder").hidden = true;
-      $("#candidate-color").value = colorFromName(file.name) || detectedColor;
-      $("#candidate-category").value = categoryFromName(file.name);
-      applyQuickCandidateInference({ filename: file.name });
-      $("#candidate-analysis-hint").textContent = "写真から仮入力しました。違うところだけ修正してください。";
-    } catch (error) {
-      console.error(error);
-      $("#candidate-analysis-hint").textContent = "画像を読み込めませんでした。別の写真をお試しください。";
-    }
+  ["#candidate-camera-photo", "#candidate-photo"].forEach((selector) => {
+    $(selector).addEventListener("change", (event) => loadCandidatePhoto(event.target.files[0]));
   });
   ["#candidate-category", "#candidate-color"].forEach((selector) => {
     $(selector).addEventListener("change", () => applyQuickCandidateInference());

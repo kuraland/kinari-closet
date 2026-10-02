@@ -1,10 +1,20 @@
-/* 更新意図: 購入候補の写真をスマホのカメラ撮影と写真ライブラリのどちらからでも明示的に選べるようにする。処理日時: 2026-10-01 JST */
+/* 更新意図: 実物のみの提案、4つの提案軸、理由付きフィードバックを追加し、実運用時の提案幅と好み学習を強化。処理日時: 2026-10-01 22:48 JST */
 const DB_NAME = "kinari-closet";
 const DB_VERSION = 2;
 const SETTINGS_KEY = "kinari-stylist-settings";
 const PREFERENCE_HALF_LIFE_DAYS = 120;
 const MAX_CANDIDATE_OUTFITS = 10;
 const CANDIDATE_QUALITY = Object.freeze({ score: 62, practical: 50, harmony: 58 });
+const FEEDBACK_REASONS = Object.freeze({
+  like: [
+    ["color", "色が好き"], ["silhouette", "形が好き"], ["style", "雰囲気が好き"],
+    ["combination", "組み合わせが好き"], ["comfortable", "着やすそう"],
+  ],
+  dislike: [
+    ["color", "色が苦手"], ["silhouette", "形が合わない"], ["tooFormal", "きちんとしすぎ"],
+    ["tooCasual", "カジュアルすぎ"], ["combination", "組み合わせが苦手"],
+  ],
+});
 const RETIRED_SAMPLE_IDS = new Set([
   "sample-bottoms-04",
   "sample-onepiece-01",
@@ -236,17 +246,32 @@ function loadStylistSettings(settings = readStylistSettings()) {
     $("#preference-balance").value = String(clamp(Number(settings.preferenceBalance)));
   }
   if (typeof settings.avoidRecent === "boolean") $("#avoid-recent").checked = settings.avoidRecent;
+  const realReady = items.filter((item) => !item.isSample && item.status === "ready");
+  const hasRealOutfit = realReady.some((item) => item.category === "onepiece")
+    || (realReady.some((item) => item.category === "tops") && realReady.some((item) => item.category === "bottoms"));
+  $("#actual-only").checked = typeof settings.actualOnly === "boolean" ? settings.actualOnly : hasRealOutfit;
+  updateActualOnlyHint();
 }
 
 function saveStylistSettings() {
   const settings = {
     preferenceBalance: Number($("#preference-balance").value),
     avoidRecent: $("#avoid-recent").checked,
+    actualOnly: $("#actual-only").checked,
     updatedAt: new Date().toISOString(),
   };
   localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
   queueCloudSync();
   return settings;
+}
+
+function updateActualOnlyHint() {
+  const hint = $("#actual-only-hint");
+  if (!hint) return;
+  const realReadyCount = items.filter((item) => !item.isSample && item.status === "ready").length;
+  hint.textContent = $("#actual-only").checked
+    ? `登録した実物 ${realReadyCount}点だけで提案します`
+    : "サンプルを含めて提案します";
 }
 
 function createId() {
@@ -309,6 +334,30 @@ function profileKeys(item) {
     `silhouette:${profile.silhouette}`,
     `style:${profile.style}`,
   ];
+}
+
+function feedbackProfileKeys(item, reason = null) {
+  const keys = profileKeys(item);
+  const kindsByReason = {
+    color: new Set(["color"]),
+    silhouette: new Set(["silhouette"]),
+    style: new Set(["style"]),
+    tooFormal: new Set(["style"]),
+    tooCasual: new Set(["style"]),
+    comfortable: new Set(["material", "silhouette"]),
+    combination: new Set(),
+  };
+  const allowedKinds = kindsByReason[reason];
+  return allowedKinds ? keys.filter((key) => allowedKinds.has(key.split(":")[0])) : keys;
+}
+
+function itemPairKeys(set) {
+  const ids = set.map((item) => item.id).sort();
+  const pairs = [];
+  for (let first = 0; first < ids.length; first += 1) {
+    for (let second = first + 1; second < ids.length; second += 1) pairs.push(`${ids[first]}::${ids[second]}`);
+  }
+  return pairs;
 }
 
 function objectURL(photo) {
@@ -382,6 +431,7 @@ async function syncCloudData({ announce = false } = {}) {
     settings: {
       preferenceBalance: Number($("#preference-balance").value),
       avoidRecent: $("#avoid-recent").checked,
+      actualOnly: $("#actual-only").checked,
       updatedAt: readStylistSettings().updatedAt || new Date(0).toISOString(),
     },
   }).then(async (result) => {
@@ -1038,7 +1088,8 @@ async function generateLookPreview() {
 }
 
 function renderStats() {
-  const active = items.filter((item) => item.status !== "archived");
+  const actualOnly = Boolean($("#actual-only")?.checked);
+  const active = items.filter((item) => item.status !== "archived" && (!actualOnly || !item.isSample));
   const currentMonth = new Date().toISOString().slice(0, 7);
   $("#stat-total").textContent = active.length;
   $("#stat-ready").textContent = active.filter((item) => item.status === "ready").length;
@@ -1248,6 +1299,7 @@ function feedbackRecencyWeight(entry) {
 function buildPreferenceModel(conditions = null) {
   const itemWeights = new Map();
   const featureWeights = new Map();
+  const pairWeights = new Map();
   const effects = { like: { item: 4, feature: 2 }, worn: { item: 3, feature: 1.25 }, dislike: { item: -7, feature: -2.5 } };
   let effectiveFeedback = 0;
 
@@ -1260,11 +1312,15 @@ function buildPreferenceModel(conditions = null) {
       itemWeights.set(id, (itemWeights.get(id) || 0) + effect.item * evidenceWeight);
       const item = items.find((candidate) => candidate.id === id);
       if (!item) return;
-      profileKeys(item).forEach((key) => featureWeights.set(key, (featureWeights.get(key) || 0) + effect.feature * evidenceWeight));
+      feedbackProfileKeys(item, entry.reason).forEach((key) => featureWeights.set(key, (featureWeights.get(key) || 0) + effect.feature * evidenceWeight));
     });
+    const entryItems = (entry.itemIds || []).map((id) => items.find((item) => item.id === id)).filter(Boolean);
+    if (!entry.reason || entry.reason === "combination") {
+      itemPairKeys(entryItems).forEach((key) => pairWeights.set(key, (pairWeights.get(key) || 0) + effect.feature * 1.35 * evidenceWeight));
+    }
   });
   const confidence = effectiveFeedback ? clamp(.3 + effectiveFeedback / 8, .3, 1) : 0;
-  return { itemWeights, featureWeights, effectiveFeedback, confidence };
+  return { itemWeights, featureWeights, pairWeights, effectiveFeedback, confidence };
 }
 
 function preferenceScore(set, model) {
@@ -1274,7 +1330,8 @@ function preferenceScore(set, model) {
     const features = profileKeys(item).reduce((featureSum, key) => featureSum + (model.featureWeights.get(key) || 0), 0);
     return sum + direct + features;
   }, 0) / Math.max(1, set.length);
-  return Math.round(clamp(50 + learnedValue * 1.25 * model.confidence));
+  const pairValue = itemPairKeys(set).reduce((sum, key) => sum + (model.pairWeights.get(key) || 0), 0) / Math.max(1, set.length - 1);
+  return Math.round(clamp(50 + (learnedValue * 1.25 + pairValue) * model.confidence));
 }
 
 function trendScore(set) {
@@ -1298,7 +1355,7 @@ function trendScore(set) {
 }
 
 function generateCandidates(conditions, sourceItems = items) {
-  const ready = sourceItems.filter((item) => item.status === "ready");
+  const ready = sourceItems.filter((item) => item.status === "ready" && (!conditions.actualOnly || !item.isSample));
   const group = (category) => ready.filter((item) => item.category === category);
   const bases = [];
   if (group("tops").length && group("bottoms").length) bases.push(...combinations([group("tops"), group("bottoms")]));
@@ -1350,22 +1407,24 @@ function selectDiverse(candidates) {
     const pool = candidates
       .filter((candidate) => !selectedIds.has(candidate.id) && candidate.components.practical >= minimumPractical)
       .sort((a, b) => scoreForRole(b) - scoreForRole(a));
-    const candidate = pool.find((option) => !isTooSimilar(option, selected)) || pool[0]
-      || candidates.find((option) => !selectedIds.has(option.id));
+    const candidate = selected.length ? pool.find((option) => !isTooSimilar(option, selected)) : pool[0];
     if (candidate) {
       selected.push({ ...candidate, role });
       selectedIds.add(candidate.id);
     }
   };
 
-  choose("balanced", (candidate) => candidate.score, 0);
+  const averageStatement = (candidate) => candidate.items.reduce((sum, item) => sum + getItemProfile(item).statement, 0) / candidate.items.length;
+  const hasClassicStyle = (candidate) => candidate.items.some((item) => ["classic", "clean", "minimal"].includes(getItemProfile(item).style));
+  choose("classic", (candidate) => candidate.components.practical * .42 + candidate.components.harmony * .38 + candidate.score * .2 + (hasClassicStyle(candidate) ? 5 : 0) - averageStatement(candidate) * 1.5, 50);
   choose(
-    feedback.length ? "personal" : "harmony",
+    "personal",
     (candidate) => feedback.length
       ? candidate.components.preference * .65 + candidate.score * .25 + candidate.components.harmony * .1
       : candidate.components.harmony * .65 + candidate.score * .35,
   );
   choose("trend", (candidate) => candidate.components.trend * .7 + candidate.score * .3, 55);
+  choose("adventure", (candidate) => candidate.components.trend * .35 + candidate.components.harmony * .25 + candidate.score * .2 + averageStatement(candidate) * 7, 48);
   return selected;
 }
 
@@ -1404,6 +1463,7 @@ function candidateOutfits(candidate) {
     occasion: "daily",
     mood: "relaxed",
     avoidRecent: false,
+    actualOnly: typeof settings.actualOnly === "boolean" ? settings.actualOnly : Boolean($("#actual-only")?.checked),
     preferenceBalance: Number.isFinite(Number(settings.preferenceBalance)) ? Number(settings.preferenceBalance) : 67,
   };
   const previewItem = { ...candidate, status: "ready", isPurchaseCandidate: true };
@@ -1422,12 +1482,15 @@ function outfitReason(outfit) {
     trend: `${trendProfile.season}の要素`,
   }[key]));
   const lead = {
-    balanced: "実用性・好み・相性・流行の総合バランスが最も高い案です。",
-    personal: "これまでの評価に近い、自分らしさを優先した案です。",
+    classic: "実用性とまとまりを優先した、取り入れやすい定番案です。",
+    personal: feedback.length
+      ? "これまでの評価に近い、自分らしさを優先した案です。"
+      : "好みを学習する起点として、まとまりのよさを優先した案です。",
     harmony: "好みの学習前でも取り入れやすい、まとまり重視の案です。",
     trend: trendFreshness.factor >= .75
       ? `${trendProfile.season}の要素を、無理なく試せる案です。`
       : "トレンド情報の鮮度を考慮し、控えめに新鮮さを加えた案です。",
+    adventure: "まとまりを保ちながら、色・柄・シルエットに少し変化を加えた案です。",
   }[outfit.role] || "条件に合わせて選んだ案です。";
   return `${lead} ${names.slice(0, 2).join("と")}を軸に、${strongest.join("と")}を評価しました。`;
 }
@@ -1437,14 +1500,17 @@ function renderOutfits(outfits, conditions) {
   const results = $("#outfit-results");
   results.hidden = false;
   if (!outfits.length) {
-    results.innerHTML = `<div class="empty-results"><span class="sparkle">!</span><h2>組み合わせを作るには服が足りません</h2><p>「トップス＋ボトムス」または「ワンピース」と、靴を着用可能な状態で登録してください。</p><button class="primary-button" data-open-item-form>服を登録する</button></div>`;
+    const sampleOption = conditions.actualOnly && items.some((item) => item.isSample && item.status === "ready")
+      ? `<button class="secondary-button" type="button" data-include-samples>サンプルを含めて試す</button>` : "";
+    results.innerHTML = `<div class="empty-results"><span class="sparkle">!</span><h2>組み合わせを作るには服が足りません</h2><p>${conditions.actualOnly ? "実物だけで" : "着用可能な服から"}「トップス＋ボトムス」または「ワンピース」と、靴を登録してください。</p><div class="empty-result-actions"><button class="primary-button" data-open-item-form>服を登録する</button>${sampleOption}</div></div>`;
+    results.dataset.outfits = "[]";
     return;
   }
   results.innerHTML = `
-    <div class="result-header"><div><p class="eyebrow">${conditions.temperature}℃・${labels.occasion[conditions.occasion]}</p><h2>今日の${outfits.length}つの提案</h2></div><span class="soft-badge">ハイブリッド判定</span></div>
+    <div class="result-header"><div><p class="eyebrow">${conditions.temperature}℃・${labels.occasion[conditions.occasion]}</p><h2>今日の${outfits.length}つの提案</h2></div><span class="soft-badge">${conditions.actualOnly ? "実物のみ" : "サンプルを含む"}</span></div>
     <div class="outfit-list">${outfits.map((outfit, index) => `
       <article class="outfit-card">
-        <div class="outfit-top"><div><span class="outfit-number">LOOK 0${index + 1}</span><h3>${({ balanced: "いちばんおすすめ", personal: "あなたらしさ重視", harmony: "まとまり重視", trend: "今季をひとさじ" })[outfit.role] || "別の提案"}</h3></div><span class="score-ring">${outfit.score}</span></div>
+        <div class="outfit-top"><div><span class="outfit-number">LOOK 0${index + 1}</span><h3>${({ classic: "定番・迷わない", personal: "自分好み", harmony: "自分好みを育てる", trend: "トレンド", adventure: "少し冒険" })[outfit.role] || "別の提案"}</h3></div><span class="score-ring">${outfit.score}</span></div>
         <div class="outfit-items">${outfit.items.map((item) => `<div class="outfit-piece"><div>${itemPhotoMarkup(item)}</div><p>${escapeHTML(item.name)}</p></div>`).join("")}</div>
         <div class="score-breakdown" aria-label="評価の内訳">
           <span><small>実用性</small><strong>${outfit.components.practical}</strong></span>
@@ -1455,17 +1521,29 @@ function renderOutfits(outfits, conditions) {
         <p class="outfit-reason">${escapeHTML(outfitReason(outfit))}</p>
         <div class="outfit-actions">
           <button class="secondary-button look-button" type="button" data-generate-look="${outfit.id}"><span aria-hidden="true">✦</span>この服で着用イメージを作る</button>
-          <div class="feedback-row" data-outfit-id="${outfit.id}"><span>評価するほど、色・柄・形の好みを学習します</span><button data-feedback="like">♡ 好き</button><button data-feedback="dislike">合わない</button><button data-feedback="worn">着た</button></div>
+          <div class="feedback-row" data-outfit-id="${outfit.id}"><span>理由も選ぶと、好みをより正確に学習します</span><button data-feedback="like">♡ 好き</button><button data-feedback="dislike">合わない</button><button data-feedback="worn">着た</button></div>
+          <div class="feedback-reasons" data-feedback-reasons="${outfit.id}" hidden></div>
         </div>
       </article>`).join("")}</div>`;
   results.dataset.outfits = JSON.stringify(outfits.map((outfit) => ({ id: outfit.id, itemIds: outfit.items.map((item) => item.id), conditions })));
 }
 
-async function saveFeedback(button) {
+function showFeedbackReasons(button) {
   const row = button.closest(".feedback-row");
+  const type = button.dataset.feedback;
+  const panel = row.parentElement.querySelector(".feedback-reasons");
+  row.dataset.pendingFeedback = type;
+  $$('[data-feedback]', row).forEach((node) => node.classList.toggle("is-selected", node === button));
+  panel.hidden = false;
+  panel.innerHTML = `<span>${type === "like" ? "どこが好き？" : "どこが合わない？"}</span>${FEEDBACK_REASONS[type].map(([value, label]) => `<button type="button" data-feedback-reason="${value}">${label}</button>`).join("")}<button class="reason-skip" type="button" data-feedback-reason="">理由なし</button>`;
+}
+
+async function saveFeedback(button, reason = null) {
+  const row = button.closest(".outfit-actions").querySelector(".feedback-row");
   const outfitData = JSON.parse($("#outfit-results").dataset.outfits || "[]").find((outfit) => outfit.id === row.dataset.outfitId);
   if (!outfitData) return;
-  const entry = { id: createId(), type: button.dataset.feedback, itemIds: outfitData.itemIds, conditions: outfitData.conditions, createdAt: new Date().toISOString() };
+  const type = button.dataset.feedback || row.dataset.pendingFeedback;
+  const entry = { id: createId(), type, reason: reason || null, itemIds: outfitData.itemIds, conditions: outfitData.conditions, createdAt: new Date().toISOString() };
   await put("feedback", entry);
   feedback.push(entry);
   if (entry.type === "worn") {
@@ -1474,11 +1552,15 @@ async function saveFeedback(button) {
       if (item) { item.lastWornAt = entry.createdAt; item.updatedAt = entry.createdAt; await put("items", item); }
     }
   }
-  $$('button', row).forEach((node) => node.classList.toggle("is-selected", node === button));
+  $$('[data-feedback]', row).forEach((node) => node.classList.toggle("is-selected", node.dataset.feedback === type));
+  const reasonPanel = row.parentElement.querySelector(".feedback-reasons");
+  reasonPanel.hidden = true;
+  reasonPanel.innerHTML = "";
+  delete row.dataset.pendingFeedback;
   renderStats();
   renderLearningSummary();
   queueCloudSync();
-  showToast(entry.type === "worn" ? "着用履歴に記録しました" : "好みとして学習しました");
+  showToast(entry.type === "worn" ? "着用履歴に記録しました" : reason ? "理由と一緒に好みを学習しました" : "好みとして学習しました");
 }
 
 function featureLabel(key) {
@@ -1543,6 +1625,8 @@ function bindEvents() {
     const restore = event.target.closest("[data-restore-item]");
     const restoreSamples = event.target.closest("[data-restore-samples]");
     const rating = event.target.closest("[data-feedback]");
+    const feedbackReason = event.target.closest("[data-feedback-reason]");
+    const includeSamples = event.target.closest("[data-include-samples]");
     const closeDialog = event.target.closest("[data-close-item-dialog]");
     const openCloud = event.target.closest("[data-open-cloud-dialog]");
     const closeCloud = event.target.closest("[data-close-cloud-dialog]");
@@ -1558,7 +1642,19 @@ function bindEvents() {
     if (archive) archiveItem(archive.dataset.archiveItem);
     if (restore) restoreItem(restore.dataset.restoreItem);
     if (restoreSamples) restoreSampleItems();
-    if (rating) saveFeedback(rating);
+    if (rating) {
+      if (rating.dataset.feedback === "worn") saveFeedback(rating);
+      else showFeedbackReasons(rating);
+    }
+    if (feedbackReason) saveFeedback(feedbackReason, feedbackReason.dataset.feedbackReason || null);
+    if (includeSamples) {
+      $("#actual-only").checked = false;
+      updateActualOnlyHint();
+      saveStylistSettings();
+      renderStats();
+      renderCandidates();
+      $("#condition-form").requestSubmit();
+    }
     if (closeDialog) $("#item-dialog").close();
     if (openCloud) { renderCloudDialog(); $("#cloud-dialog").showModal(); }
     if (closeCloud) $("#cloud-dialog").close();
@@ -1578,6 +1674,12 @@ function bindEvents() {
   $("#preference-balance").addEventListener("input", updateWeightOutput);
   $("#preference-balance").addEventListener("change", saveStylistSettings);
   $("#avoid-recent").addEventListener("change", saveStylistSettings);
+  $("#actual-only").addEventListener("change", () => {
+    updateActualOnlyHint();
+    saveStylistSettings();
+    renderStats();
+    renderCandidates();
+  });
   $("#cloud-sign-in").addEventListener("click", () => handleCloudAuth("signin"));
   $("#cloud-sign-up").addEventListener("click", () => handleCloudAuth("signup"));
   $("#cloud-sync-now").addEventListener("click", () => syncCloudData({ announce: true }));
@@ -1646,7 +1748,7 @@ function bindEvents() {
     const form = new FormData(event.currentTarget);
     const conditions = {
       temperature: Number($("#temperature").value), weather: form.get("weather"), occasion: form.get("occasion"), mood: form.get("mood"),
-      avoidRecent: $("#avoid-recent").checked, preferenceBalance: Number($("#preference-balance").value),
+      avoidRecent: $("#avoid-recent").checked, actualOnly: $("#actual-only").checked, preferenceBalance: Number($("#preference-balance").value),
     };
     $("#quick-temperature").textContent = `${conditions.temperature}℃`;
     $("#quick-occasion").textContent = labels.occasion[conditions.occasion];

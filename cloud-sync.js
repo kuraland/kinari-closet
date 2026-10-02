@@ -1,4 +1,4 @@
-/* 更新意図: 端末間同期に加え、認証済みユーザーだけが匿名モデルのAI着用イメージ生成を呼び出せるようにする。処理日時: 2026-09-30 JST */
+/* 更新意図: 実物のみ設定と評価理由を、既存データとの互換性を保ちながら端末間同期へ追加。処理日時: 2026-10-01 22:48 JST */
 (function attachKinariCloud(root) {
   const STORAGE_BUCKET = "garment-images";
   const SDK_URL = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2";
@@ -88,17 +88,21 @@
       id: entry.id,
       type: entry.type,
       item_ids: entry.itemIds,
-      conditions: entry.conditions || {},
+      conditions: { ...(entry.conditions || {}), feedbackReason: entry.reason || null },
       created_at: entry.createdAt,
     };
   }
 
   function fromFeedbackRow(row) {
+    const conditions = { ...(row.conditions || {}) };
+    const reason = conditions.feedbackReason || null;
+    delete conditions.feedbackReason;
     return {
       id: row.id,
       type: row.type,
       itemIds: row.item_ids || [],
-      conditions: row.conditions || {},
+      conditions,
+      reason,
       createdAt: row.created_at,
     };
   }
@@ -268,6 +272,7 @@
         user_id: userId,
         preference_balance: Number(settings?.preferenceBalance ?? 67),
         avoid_recent: settings?.avoidRecent !== false,
+        actual_only: settings?.actualOnly !== false,
         updated_at: localSettingsUpdatedAt,
       }), "設定を同期できません");
     }
@@ -290,6 +295,7 @@
     const mergedSettings = remote.settings ? {
       preferenceBalance: Number(remote.settings.preference_balance),
       avoidRecent: remote.settings.avoid_recent,
+      actualOnly: remote.settings.actual_only !== false,
       updatedAt: remote.settings.updated_at,
     } : settings;
 

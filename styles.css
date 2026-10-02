@@ -1,4 +1,4 @@
-/* 更新意図: 購入候補の写真をカメラ撮影と写真ライブラリから明示的に選べるスマホ向け入力UIへ変更。処理日時: 2026-10-01 JST */
+/* 更新意図: 実物のみモード、4方向の提案、理由付きフィードバックをスマホでも操作しやすいUIへ追加。処理日時: 2026-10-01 22:48 JST */
 :root {
   --ink: #252923;
   --muted: #73766e;
@@ -156,6 +156,11 @@ input[type="range"] { width: 100%; accent-color: var(--sage); }
 .choice-row input:checked + span, .choice-grid input:checked + span { background: var(--sage-soft); border-color: #a9b6a5; color: var(--sage-dark); font-weight: 600; }
 .check-line { display: flex; align-items: center; gap: 9px; margin: 0 0 22px; color: var(--muted); font-size: 10px; }
 .check-line input { accent-color: var(--sage); }
+.actual-only-line { align-items: start; padding: 12px 13px; border: 1px solid #cfd8ca; border-radius: 11px; background: var(--sage-soft); }
+.actual-only-line input { margin-top: 3px; }
+.actual-only-line > span { display: grid; gap: 3px; }
+.actual-only-line strong { color: var(--sage-dark); font-size: 11px; }
+.actual-only-line small { color: #687165; font-size: 9px; line-height: 1.5; }
 .weight-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 13px; }
 .weight-grid span { display: grid; gap: 2px; padding: 8px 5px; border-radius: 9px; background: #f6f3ec; color: var(--muted); font-size: 11px; text-align: center; }
 .weight-grid strong { color: var(--ink); font-size: 13px; }
@@ -190,6 +195,13 @@ input[type="range"] { width: 100%; accent-color: var(--sage); }
 .feedback-row > span { margin-right: auto; color: var(--muted); font-size: 9px; }
 .feedback-row button { padding: 6px 9px; border: 1px solid var(--line); background: white; border-radius: 8px; cursor: pointer; font-size: 9px; }
 .feedback-row button:hover, .feedback-row button.is-selected { background: var(--sage-soft); border-color: #a9b6a5; }
+.feedback-reasons { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; padding: 10px; border-radius: 10px; background: #f6f3ec; }
+.feedback-reasons[hidden] { display: none; }
+.feedback-reasons > span { width: 100%; margin-bottom: 2px; color: var(--muted); font-size: 9px; font-weight: 600; }
+.feedback-reasons button { padding: 7px 9px; border: 1px solid #d8d1c5; border-radius: 999px; background: #fff; color: #565b53; cursor: pointer; font-size: 9px; }
+.feedback-reasons button:hover { border-color: #9caa98; background: var(--sage-soft); color: var(--sage-dark); }
+.feedback-reasons .reason-skip { border-color: transparent; background: transparent; color: var(--muted); }
+.empty-result-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
 
 .shopping-guide { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0; overflow: hidden; margin-bottom: 34px; }
 .shopping-guide > div { position: relative; display: grid; gap: 5px; padding: 22px 24px; border-right: 1px solid var(--line); }

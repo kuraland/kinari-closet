@@ -15,10 +15,10 @@
       href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Noto+Sans+JP:wght@400;500;600;700&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="styles.css?v=12" />
+    <link rel="stylesheet" href="styles.css?v=13" />
   </head>
   <body>
-    <!-- 更新意図: 購入候補の写真をスマホのカメラ撮影と写真ライブラリのどちらからでも明示的に選べるようにする。処理日時: 2026-10-01 JST -->
+    <!-- 更新意図: 実物のみの提案、4つの提案軸、理由付きフィードバックを追加し、実運用時の提案幅と好み学習を強化。処理日時: 2026-10-01 22:48 JST -->
     <div class="app-shell">
       <aside class="sidebar" aria-label="メインナビゲーション">
         <a class="brand" href="#home" aria-label="KINARI ホーム">
@@ -190,7 +190,7 @@
             <div>
               <p class="eyebrow">PERSONAL STYLIST</p>
               <h1 id="stylist-title">今日は、どんな一日？</h1>
-              <p>条件に合わない服を先に外し、総合・あなたらしさ・今季らしさの3方向で提案します。</p>
+              <p>実物だけを対象に、定番・自分好み・トレンド・少し冒険の4方向で提案します。</p>
             </div>
           </div>
 
@@ -260,7 +260,12 @@
                 <span>直近7日間に着た服をできるだけ避ける</span>
               </label>
 
-              <button class="primary-button wide large" type="submit">✦ コーデを3案つくる</button>
+              <label class="check-line actual-only-line">
+                <input id="actual-only" type="checkbox" checked />
+                <span><strong>実物のみモード</strong><small id="actual-only-hint">登録した実物だけで提案します</small></span>
+              </label>
+
+              <button class="primary-button wide large" type="submit">✦ 4つの方向でコーデを作る</button>
             </form>
 
             <section class="results-area" aria-live="polite">
@@ -529,7 +534,7 @@
 
     <div class="toast" id="toast" role="status"></div>
     <script src="supabase-config.js?v=1"></script>
-    <script src="cloud-sync.js?v=2"></script>
-    <script src="app.js?v=14"></script>
+    <script src="cloud-sync.js?v=3"></script>
+    <script src="app.js?v=15"></script>
   </body>
 </html>

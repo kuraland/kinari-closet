@@ -1,4 +1,4 @@
-// 追加意図: Supabaseとのデータ変換で、端末内形式とDB形式の互換性を回帰確認する。処理日時: 2026-09-29 JST
+// 追加意図: Supabaseとのデータ変換で、実物のみ設定と評価理由を含む端末内形式・DB形式の互換性を回帰確認する。処理日時: 2026-10-01 22:48 JST
 const assert = require("node:assert/strict");
 const { __test } = require("../cloud-sync.js");
 
@@ -37,11 +37,13 @@ assert.equal(__test.isLocalNewer("2026-09-29T00:00:00Z", "2026-09-29T00:00:00Z")
 const feedback = {
   id: "feedback-1",
   type: "like",
+  reason: "color",
   itemIds: ["item-1"],
   conditions: { occasion: "work" },
   createdAt: "2026-09-29T00:30:00.000Z",
 };
 const feedbackRow = __test.toFeedbackRow(feedback, "00000000-0000-0000-0000-000000000001");
+assert.equal(feedbackRow.conditions.feedbackReason, "color");
 assert.deepEqual(__test.fromFeedbackRow(feedbackRow), feedback);
 
 console.log("cloud sync mapping tests passed");

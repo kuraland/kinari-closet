@@ -32,6 +32,8 @@
 
 > 更新意図: 実物のみモード、定番・自分好み・トレンド・少し冒険の4方向提案、理由付きフィードバックを追加。処理日時: 2026-10-01 22:48 JST
 
+> 更新意図: 既存ルールを常時利用しつつ、API設定時はJevで日常的に再順位付けし、評価履歴が蓄積した後の低確信度判断やプロフィール更新をClaudeへ段階的に委ねる構成を追加。処理日時: 2026-10-03 19:08 JST
+
 服の写真と属性をブラウザ内に保存し、天気・気温・予定・気分に応じたコーデを最大4案提案するローカルファーストのプロトタイプです。
 
 ## 公開版
@@ -67,6 +69,8 @@ python3 -m http.server 4173
 - 新しい評価ほど強く、予定・気分・気温が近い評価ほど強く反映
 - 評価数が少ない間は好みスコアを中立へ寄せ、少数評価への過学習を抑制
 - 「定番・自分好み・トレンド・少し冒険」の役割別に最大4案を選択
+- API設定時は、ルール候補をJevで構造化採点し、Claudeが必要な場合だけ評価履歴を含めて再判定
+- AI APIが未設定・失敗・タイムアウトの場合も、既存ルールの提案をそのまま継続
 - サンプルを残したまま、通常の提案と買い物候補では登録した実物だけを使える切り替え
 - トレンド情報に有効期限を設け、古い情報はスコアへの影響を自動縮小
 - 好み／流行のバランス設定を端末内に保存
@@ -132,9 +136,46 @@ supabase secrets set OPENAI_API_KEY
 
 生成処理は`gpt-5`から画像生成ツールの`gpt-image-2.5-flare`を低品質・縦長指定で呼び出します。利用モデルや料金は変わる可能性があるため、運用前に[OpenAI公式の画像生成ガイド](https://developers.openai.com/api/docs/guides/image-generation)を確認してください。生成レコードは`generated_looks`、完成画像は非公開の`generated-looks`バケットへ保存し、本人以外には読み取りを許可しません。失敗した生成は1日3回の上限へ数えません。
 
+## Jev・Claudeによるコーデ再順位付けの初期設定
+
+コーデ候補は必ず既存ルールで先に生成します。ログイン中かつSupabase Edge FunctionへAPIキーが設定されている場合だけ、上位候補を追加評価します。APIキーはGitHub Pagesへ置かず、候補の属性と必要最小限の好み情報だけをEdge Functionから各APIへ送ります。
+
+1. SQL Editorで`supabase/migrations/202610030001_ai_preference_profiles.sql`を実行します。
+2. Edge Functionをデプロイします。
+
+```bash
+supabase functions deploy rank-outfits
+```
+
+3. TypeSafeとAnthropicのキーをSupabase Secretsへ登録します。片方だけでも動作します。
+
+```bash
+supabase secrets set TYPESAFE_API_KEY
+supabase secrets set ANTHROPIC_API_KEY
+```
+
+標準動作は次のとおりです。
+
+- `TYPESAFE_API_KEY`あり: ルール上位の最大12候補を`jev-latest`で採点し、ルール65%・Jev35%で総合点を補正
+- `ANTHROPIC_API_KEY`あり: 評価が20件以上になり、Jevの確信度が低い・上位が僅差・好みプロフィールの更新時期、のいずれかでClaudeを利用
+- Claudeの分析結果: `ai_preference_profiles`へ保存し、次回のJev判定でも再利用
+- どちらも未設定: 従来どおりルールベースだけで動作
+- APIエラー時: 画面を止めず、先に表示したルール提案を維持
+
+必要に応じてEdge Functionの環境変数で調整できます。
+
+```bash
+supabase secrets set JEV_MODEL=jev-latest
+supabase secrets set CLAUDE_MODEL=claude-sonnet-5-5
+supabase secrets set CLAUDE_MIN_FEEDBACK=20
+supabase secrets set CLAUDE_REFRESH_STEP=10
+supabase secrets set JEV_CONFIDENCE_THRESHOLD=0.72
+supabase secrets set JEV_MARGIN_THRESHOLD=0.12
+```
+
 ## 現時点の「AI」の範囲
 
-コーデの選定自体は、①実用ルールによる候補生成、②色・柄・素材・シルエットの相性、③評価履歴から作る個人別の特徴量、④`trends.json`の今季情報、を組み合わせた説明可能なハイブリッド推薦です。外部の生成AI APIは、その選定結果を匿名モデルの着用イメージへ変換するときだけ使います。服登録時の写真解析は引き続き端末内の簡易画像解析と名前由来の属性推定です。
+コーデの選定は、①実用ルールによる候補生成、②色・柄・素材・シルエットの相性、③評価履歴から作る個人別の特徴量、④`trends.json`の今季情報、を常に土台にします。任意のAPIキーが設定されている場合、⑤Jevによる候補の構造化採点、⑥Claudeによる長期的な好みプロフィール更新と難しい候補の再判定、を追加します。AIを有効にしてもルールを置き換えず、外部APIが利用できない場合はルール結果へ自動復帰します。服登録時の写真解析は引き続き端末内の簡易画像解析と名前由来の属性推定です。
 
 今季トレンドはアプリ本体から分離しており、`trends.json`を更新すれば推薦へ反映できます。`updatedAt`と`validUntil`から鮮度を判定し、期限切れの情報は中立点へ寄せて影響を自動的に弱めます。2026年秋冬の初期設定は、[UNITED ARROWSの2026秋メンズ](https://store.united-arrows.co.jp/ua_columns/brand/bym/feature/article/men_autumn_outfits)、[VogueのFW26メンズ予測](https://www.vogue.com/article/5-menswear-trend-predictions-for-fall-winter-2026)、[GQのFW26メンズトレンド](https://www.gq.com/story/the-9-fall-winter-2026-menswear-trends-to-try-right-now)を照合し、ブラウン、深いレッド、チェック、レザー、コーデュロイ、細身トップス、レトロスポーツを推薦属性へ置き換えています。
 

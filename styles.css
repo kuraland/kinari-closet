@@ -1,4 +1,4 @@
-/* 更新意図: 実物のみモード、4方向の提案、理由付きフィードバックをスマホでも操作しやすいUIへ追加。処理日時: 2026-10-01 22:48 JST */
+/* 更新意図: 4方向提案にルール・Jev・Claudeの判定状態を追加し、スマホでも判定根拠を見分けやすくする。処理日時: 2026-10-03 19:08 JST */
 :root {
   --ink: #252923;
   --muted: #73766e;
@@ -171,6 +171,10 @@ input[type="range"] { width: 100%; accent-color: var(--sage); }
 .empty-results p { font-size: 12px; }
 .result-header { display: flex; align-items: start; justify-content: space-between; gap: 20px; margin-bottom: 16px; }
 .result-header p { color: var(--muted); font-size: 11px; }
+.result-badges { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
+.ranking-badge[data-mode="jev"] { background: var(--blue-soft); color: #405f68; }
+.ranking-badge[data-mode="claude"] { background: #e8e0ef; color: #65506f; }
+.ranking-summary { margin: -7px 0 14px; color: var(--muted); font-size: 10px; line-height: 1.6; }
 .outfit-list { display: grid; gap: 16px; }
 .outfit-card { padding: 20px; background: var(--surface); border: 1px solid var(--line); border-radius: 18px; box-shadow: var(--shadow); }
 .outfit-top { display: flex; justify-content: space-between; gap: 16px; margin-bottom: 15px; }
@@ -186,6 +190,7 @@ input[type="range"] { width: 100%; accent-color: var(--sage); }
 .score-breakdown span { display: grid; gap: 3px; padding: 9px 7px; border-radius: 9px; background: #f5f2eb; text-align: center; }
 .score-breakdown small { color: var(--muted); font-size: 11px; }
 .score-breakdown strong { color: var(--sage-dark); font-size: 15px; }
+.ai-score-note { margin: 8px 1px 0; color: var(--muted); font-size: 9px; }
 .outfit-reason { margin: 15px 0 13px; padding: 11px 13px; border-radius: 10px; background: #f6f3ec; color: #60635d; font-size: 10px; line-height: 1.7; }
 .outfit-actions { display: grid; gap: 11px; }
 .look-button { width: 100%; padding: 11px 14px; border-color: #b8c3b4; background: var(--sage-soft); color: var(--sage-dark); font-weight: 700; }

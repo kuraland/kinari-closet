@@ -15,10 +15,10 @@
       href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Noto+Sans+JP:wght@400;500;600;700&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="styles.css?v=13" />
+    <link rel="stylesheet" href="styles.css?v=14" />
   </head>
   <body>
-    <!-- 更新意図: 実物のみの提案、4つの提案軸、理由付きフィードバックを追加し、実運用時の提案幅と好み学習を強化。処理日時: 2026-10-01 22:48 JST -->
+    <!-- 更新意図: 既存ルールを土台に、API設定時だけJevとClaudeで候補を再順位付けする段階式推薦を追加。処理日時: 2026-10-03 19:08 JST -->
     <div class="app-shell">
       <aside class="sidebar" aria-label="メインナビゲーション">
         <a class="brand" href="#home" aria-label="KINARI ホーム">
@@ -190,7 +190,7 @@
             <div>
               <p class="eyebrow">PERSONAL STYLIST</p>
               <h1 id="stylist-title">今日は、どんな一日？</h1>
-              <p>実物だけを対象に、定番・自分好み・トレンド・少し冒険の4方向で提案します。</p>
+              <p>実物だけを対象に、定番・自分好み・トレンド・少し冒険の4方向で提案します。AI未設定時もルール判定だけで利用できます。</p>
             </div>
           </div>
 
@@ -534,7 +534,7 @@
 
     <div class="toast" id="toast" role="status"></div>
     <script src="supabase-config.js?v=1"></script>
-    <script src="cloud-sync.js?v=3"></script>
-    <script src="app.js?v=15"></script>
+    <script src="cloud-sync.js?v=4"></script>
+    <script src="app.js?v=16"></script>
   </body>
 </html>

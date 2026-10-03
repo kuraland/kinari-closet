@@ -1,6 +1,9 @@
-// 追加意図: Supabaseとのデータ変換で、実物のみ設定と評価理由を含む端末内形式・DB形式の互換性を回帰確認する。処理日時: 2026-10-01 22:48 JST
+// 追加意図: Supabaseとのデータ変換と、認証済みAI再順位付け関数の公開を回帰確認する。処理日時: 2026-10-03 19:08 JST
 const assert = require("node:assert/strict");
-const { __test } = require("../cloud-sync.js");
+const cloud = require("../cloud-sync.js");
+const { __test } = cloud;
+
+assert.equal(typeof cloud.rankOutfits, "function", "AI再順位付けのEdge Function呼び出しを公開してください");
 
 const item = {
   id: "item-1",

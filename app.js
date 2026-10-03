@@ -1,9 +1,11 @@
-/* 更新意図: 実物のみの提案、4つの提案軸、理由付きフィードバックを追加し、実運用時の提案幅と好み学習を強化。処理日時: 2026-10-01 22:48 JST */
+/* 更新意図: 既存ルールを常時維持し、API設定時だけJevとClaudeで候補を再順位付けする段階式推薦を追加。処理日時: 2026-10-03 19:08 JST */
 const DB_NAME = "kinari-closet";
 const DB_VERSION = 2;
 const SETTINGS_KEY = "kinari-stylist-settings";
 const PREFERENCE_HALF_LIFE_DAYS = 120;
 const MAX_CANDIDATE_OUTFITS = 10;
+const MAX_AI_RANKING_CANDIDATES = 12;
+const AI_RANKING_WEIGHT = .35;
 const CANDIDATE_QUALITY = Object.freeze({ score: 62, practical: 50, harmony: 58 });
 const FEEDBACK_REASONS = Object.freeze({
   like: [
@@ -106,6 +108,7 @@ let cloudSyncPromise = null;
 let cloudSyncTimer = null;
 let pendingLook = null;
 let lookGenerationInProgress = false;
+let outfitRankingRequestId = 0;
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
@@ -1391,6 +1394,95 @@ function generateCandidates(conditions, sourceItems = items) {
   }).sort((a, b) => b.score - a.score);
 }
 
+function preferenceSnapshot(conditions) {
+  const model = buildPreferenceModel(conditions);
+  const featureEntries = [...model.featureWeights.entries()];
+  const itemEntries = [...model.itemWeights.entries()];
+  const strongest = (entries, direction, limit) => entries
+    .filter(([, value]) => direction * value > 0)
+    .sort((first, second) => direction * (second[1] - first[1]))
+    .slice(0, limit)
+    .map(([key, value]) => ({ key, weight: Math.round(value * 100) / 100 }));
+  return {
+    effectiveFeedback: Math.round(model.effectiveFeedback * 100) / 100,
+    confidence: Math.round(model.confidence * 100) / 100,
+    favoredFeatures: strongest(featureEntries, 1, 8),
+    avoidedFeatures: strongest(featureEntries, -1, 8),
+    favoredItemIds: strongest(itemEntries, 1, 6),
+    avoidedItemIds: strongest(itemEntries, -1, 6),
+  };
+}
+
+function aiCandidatePayload(candidate) {
+  return {
+    id: candidate.id,
+    ruleScore: candidate.score,
+    components: candidate.components,
+    items: candidate.items.map((item) => {
+      const profile = getItemProfile(item);
+      return {
+        id: item.id,
+        name: item.name,
+        category: item.category,
+        color: item.color,
+        pattern: profile.pattern,
+        material: profile.material,
+        silhouette: profile.silhouette,
+        style: profile.style,
+      };
+    }),
+  };
+}
+
+function aiCandidatePool(candidates, limit = MAX_AI_RANKING_CANDIDATES) {
+  const selected = [];
+  const ids = new Set();
+  const add = (candidate) => {
+    if (!candidate || ids.has(candidate.id) || selected.length >= limit) return;
+    ids.add(candidate.id);
+    selected.push(candidate);
+  };
+  candidates.slice(0, 5).forEach(add);
+  ["practical", "preference", "harmony", "trend"].forEach((key) => {
+    [...candidates].sort((first, second) => second.components[key] - first.components[key]).slice(0, 3).forEach(add);
+  });
+  candidates.forEach(add);
+  return selected;
+}
+
+function applyAIRanking(candidates, ranking) {
+  if (!ranking || !["jev", "claude"].includes(ranking.mode) || !ranking.scores) return candidates;
+  return candidates.map((candidate) => {
+    const aiScore = Number(ranking.scores[candidate.id]);
+    if (!Number.isFinite(aiScore)) return candidate;
+    const blendedScore = candidate.score * (1 - AI_RANKING_WEIGHT) + clamp(aiScore) * AI_RANKING_WEIGHT;
+    return { ...candidate, ruleScore: candidate.score, aiScore: Math.round(clamp(aiScore)), aiMode: ranking.mode, score: Math.round(clamp(blendedScore, 40, 98)) };
+  }).sort((first, second) => second.score - first.score);
+}
+
+async function rankOutfitsWithOptionalAI(candidates, conditions) {
+  if (!candidates.length || !cloudUser || !window.KinariCloud?.rankOutfits) {
+    return { candidates, meta: { mode: "rules", summary: "端末内のルールと好み学習で判定" } };
+  }
+  const pool = aiCandidatePool(candidates);
+  const ranking = await window.KinariCloud.rankOutfits({
+    candidates: pool.map(aiCandidatePayload),
+    conditions,
+    preferenceSnapshot: preferenceSnapshot(conditions),
+  });
+  const mode = ranking?.mode || "rules";
+  return {
+    candidates: ["jev", "claude"].includes(mode) ? applyAIRanking(pool, ranking) : candidates,
+    meta: {
+      mode,
+      confidence: Number(ranking?.confidence),
+      summary: ranking?.summary || "ルール判定を使用しました",
+      feedbackCount: Number(ranking?.feedbackCount || 0),
+      profileUpdated: Boolean(ranking?.profileUpdated),
+    },
+  };
+}
+
 function isTooSimilar(candidate, selected) {
   const signature = candidate.items.map((item) => item.id);
   return selected.some((picked) => {
@@ -1495,7 +1587,14 @@ function outfitReason(outfit) {
   return `${lead} ${names.slice(0, 2).join("と")}を軸に、${strongest.join("と")}を評価しました。`;
 }
 
-function renderOutfits(outfits, conditions) {
+function rankingLabel(meta = {}) {
+  if (meta.pending) return "ルール判定・AI確認中";
+  if (meta.mode === "claude") return "ルール＋Jev＋Claude";
+  if (meta.mode === "jev") return "ルール＋Jev";
+  return "ルール判定";
+}
+
+function renderOutfits(outfits, conditions, rankingMeta = { mode: "rules" }) {
   $("#outfit-empty").hidden = true;
   const results = $("#outfit-results");
   results.hidden = false;
@@ -1507,7 +1606,8 @@ function renderOutfits(outfits, conditions) {
     return;
   }
   results.innerHTML = `
-    <div class="result-header"><div><p class="eyebrow">${conditions.temperature}℃・${labels.occasion[conditions.occasion]}</p><h2>今日の${outfits.length}つの提案</h2></div><span class="soft-badge">${conditions.actualOnly ? "実物のみ" : "サンプルを含む"}</span></div>
+    <div class="result-header"><div><p class="eyebrow">${conditions.temperature}℃・${labels.occasion[conditions.occasion]}</p><h2>今日の${outfits.length}つの提案</h2></div><div class="result-badges"><span class="soft-badge">${conditions.actualOnly ? "実物のみ" : "サンプルを含む"}</span><span class="soft-badge ranking-badge" data-mode="${escapeHTML(rankingMeta.mode || "rules")}">${escapeHTML(rankingLabel(rankingMeta))}</span></div></div>
+    <p class="ranking-summary">${escapeHTML(rankingMeta.summary || "既存ルールを土台に判定しています")}${rankingMeta.profileUpdated ? " 好みプロフィールも更新しました。" : ""}</p>
     <div class="outfit-list">${outfits.map((outfit, index) => `
       <article class="outfit-card">
         <div class="outfit-top"><div><span class="outfit-number">LOOK 0${index + 1}</span><h3>${({ classic: "定番・迷わない", personal: "自分好み", harmony: "自分好みを育てる", trend: "トレンド", adventure: "少し冒険" })[outfit.role] || "別の提案"}</h3></div><span class="score-ring">${outfit.score}</span></div>
@@ -1518,6 +1618,7 @@ function renderOutfits(outfits, conditions) {
           <span><small>服同士の相性</small><strong>${outfit.components.harmony}</strong></span>
           <span><small>今季らしさ</small><strong>${outfit.components.trend}</strong></span>
         </div>
+        ${Number.isFinite(outfit.aiScore) ? `<p class="ai-score-note">${outfit.aiMode === "claude" ? "Claude" : "Jev"}補正 ${outfit.aiScore}点・ルール総合 ${outfit.ruleScore}点</p>` : ""}
         <p class="outfit-reason">${escapeHTML(outfitReason(outfit))}</p>
         <div class="outfit-actions">
           <button class="secondary-button look-button" type="button" data-generate-look="${outfit.id}"><span aria-hidden="true">✦</span>この服で着用イメージを作る</button>
@@ -1743,8 +1844,9 @@ function bindEvents() {
   $("#look-dialog").addEventListener("cancel", (event) => {
     if (lookGenerationInProgress) event.preventDefault();
   });
-  $("#condition-form").addEventListener("submit", (event) => {
+  $("#condition-form").addEventListener("submit", async (event) => {
     event.preventDefault();
+    const requestId = ++outfitRankingRequestId;
     const form = new FormData(event.currentTarget);
     const conditions = {
       temperature: Number($("#temperature").value), weather: form.get("weather"), occasion: form.get("occasion"), mood: form.get("mood"),
@@ -1753,7 +1855,24 @@ function bindEvents() {
     $("#quick-temperature").textContent = `${conditions.temperature}℃`;
     $("#quick-occasion").textContent = labels.occasion[conditions.occasion];
     $("#quick-mood").textContent = labels.mood[conditions.mood];
-    renderOutfits(selectDiverse(generateCandidates(conditions)), conditions);
+    const candidates = generateCandidates(conditions);
+    const ruleOutfits = selectDiverse(candidates);
+    const canCheckAI = Boolean(cloudUser && window.KinariCloud?.rankOutfits && candidates.length);
+    renderOutfits(ruleOutfits, conditions, {
+      mode: "rules",
+      pending: canCheckAI,
+      summary: canCheckAI ? "ルール結果を表示しながら、設定済みのAI補正を確認しています" : "端末内のルールと好み学習で判定",
+    });
+    if (!canCheckAI) return;
+    try {
+      const ranked = await rankOutfitsWithOptionalAI(candidates, conditions);
+      if (requestId !== outfitRankingRequestId) return;
+      renderOutfits(selectDiverse(ranked.candidates), conditions, ranked.meta);
+    } catch (error) {
+      console.info("AI補正を利用できないためルール結果を維持します", error);
+      if (requestId !== outfitRankingRequestId) return;
+      renderOutfits(ruleOutfits, conditions, { mode: "rules", summary: "AI補正を利用できなかったため、ルール判定を維持しました" });
+    }
   });
 }
 

@@ -1,4 +1,4 @@
-/* 更新意図: 実物のみ設定と評価理由を、既存データとの互換性を保ちながら端末間同期へ追加。処理日時: 2026-10-01 22:48 JST */
+/* 更新意図: 実物のみ設定と評価理由の同期に加え、認証済みEdge Function経由の任意AI再順位付けを追加。処理日時: 2026-10-03 19:08 JST */
 (function attachKinariCloud(root) {
   const STORAGE_BUCKET = "garment-images";
   const SDK_URL = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2";
@@ -196,6 +196,20 @@
     return result.data;
   }
 
+  async function rankOutfits(payload) {
+    requireClient();
+    const result = await client.functions.invoke("rank-outfits", { body: payload });
+    if (result.error) {
+      const context = result.error.context;
+      let body = null;
+      try { body = await context?.json?.(); } catch { body = null; }
+      const error = new Error(body?.message || result.error.message || "AI補正を利用できません");
+      error.code = body?.error || "AI_RANKING_FAILED";
+      throw error;
+    }
+    return result.data;
+  }
+
   async function uploadPhoto(item, userId, previousPath) {
     if (!(item.photo instanceof Blob)) return previousPath || item.photoPath || null;
     const extension = item.photo.type === "image/png" ? "png" : "jpg";
@@ -314,6 +328,7 @@
     signIn,
     signOut,
     generateLook,
+    rankOutfits,
     syncAll,
     getUser: () => currentUser,
     __test: { isoTime, isLocalNewer, toGarmentRow, fromGarmentRow, toFeedbackRow, fromFeedbackRow },

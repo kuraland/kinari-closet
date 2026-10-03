@@ -9,8 +9,17 @@ create table if not exists public.ai_preference_profiles (
 
 alter table public.ai_preference_profiles enable row level security;
 
-drop policy if exists "Users can read own AI preference profile" on public.ai_preference_profiles;
-create policy "Users can read own AI preference profile"
-on public.ai_preference_profiles for select
-using (auth.uid() = user_id);
-
+do $$
+begin
+  if not exists (
+    select 1 from pg_policies
+    where schemaname = 'public'
+      and tablename = 'ai_preference_profiles'
+      and policyname = 'Users can read own AI preference profile'
+  ) then
+    create policy "Users can read own AI preference profile"
+    on public.ai_preference_profiles for select
+    using (auth.uid() = user_id);
+  end if;
+end
+$$;

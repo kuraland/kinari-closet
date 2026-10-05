@@ -1,0 +1,167 @@
+{
+  "collectedAt": "2026-10-05T05:32:54.602Z",
+  "privacy": "公開キーワードのみ。画像・投稿本文・ユーザー名・プロフィールは収集しない。",
+  "sources": [
+    {
+      "id": "all",
+      "label": "総合",
+      "url": "https://wear.jp/keyword/",
+      "keywords": [
+        "秋服",
+        "スウェットパンツ コーデ",
+        "ディズニーコーデ",
+        "シアートップス",
+        "Y2K ファッション",
+        "GAP パーカー",
+        "リムレス メガネ",
+        "カジュアルコーデ",
+        "スウェットコーデ",
+        "フェス 服装",
+        "デニムセットアップ",
+        "ナポレオンジャケット",
+        "ナップサック NIKE",
+        "SALOMON スニーカー",
+        "バンダナ おしゃれ",
+        "モノトーンコーデ",
+        "バミューダパンツってダサい…？着こなしのコツとお手本コーデ",
+        "ワイドパンツの流行りはいつまで？トレンドの傾向とおしゃれなお手本コーデ",
+        "カプリパンツってダサい？どう着るのがおしゃれ？お手本と着こなしのコツ",
+        "ドット柄の流行りはいつまで？トレンドの傾向とお手本コーデ"
+      ]
+    },
+    {
+      "id": "men",
+      "label": "メンズ",
+      "url": "https://wear.jp/men-keyword/",
+      "keywords": [
+        "秋服",
+        "スウェットパンツ コーデ",
+        "ディズニーコーデ",
+        "Y2K ファッション",
+        "GAP パーカー",
+        "リムレス メガネ",
+        "CLEL",
+        "カジュアルコーデ",
+        "フェス 服装",
+        "デニムセットアップ",
+        "ノームコア メンズ",
+        "ナップサック NIKE",
+        "SALOMON スニーカー",
+        "バンダナ おしゃれ",
+        "モノトーンコーデ",
+        "ARC'TERYX",
+        "タックイン メンズ",
+        "きれいめコーデ",
+        "WYM LIDNM",
+        "GU"
+      ]
+    }
+  ],
+  "acceptedSignals": [
+    {
+      "category": "styles",
+      "value": "trendy",
+      "score": 4.077,
+      "sourceCount": 2,
+      "keywords": [
+        "シアートップス",
+        "Y2K ファッション",
+        "ワイドパンツの流行りはいつまで？トレンドの傾向とおしゃれなお手本コーデ",
+        "ドット柄の流行りはいつまで？トレンドの傾向とお手本コーデ"
+      ]
+    },
+    {
+      "category": "styles",
+      "value": "casual",
+      "score": 3.562,
+      "sourceCount": 2,
+      "keywords": [
+        "カジュアルコーデ",
+        "フェス 服装"
+      ]
+    },
+    {
+      "category": "materials",
+      "value": "knit",
+      "score": 3.163,
+      "sourceCount": 2,
+      "keywords": [
+        "スウェットパンツ コーデ",
+        "スウェットコーデ"
+      ]
+    },
+    {
+      "category": "styles",
+      "value": "minimal",
+      "score": 2.075,
+      "sourceCount": 2,
+      "keywords": [
+        "モノトーンコーデ",
+        "ノームコア メンズ"
+      ]
+    },
+    {
+      "category": "colors",
+      "value": "blue",
+      "score": 1.642,
+      "sourceCount": 2,
+      "keywords": [
+        "デニムセットアップ"
+      ]
+    },
+    {
+      "category": "materials",
+      "value": "denim",
+      "score": 1.642,
+      "sourceCount": 2,
+      "keywords": [
+        "デニムセットアップ"
+      ]
+    },
+    {
+      "category": "styles",
+      "value": "sporty",
+      "score": 1.402,
+      "sourceCount": 2,
+      "keywords": [
+        "SALOMON スニーカー"
+      ]
+    },
+    {
+      "category": "colors",
+      "value": "black",
+      "score": 1.242,
+      "sourceCount": 2,
+      "keywords": [
+        "モノトーンコーデ"
+      ]
+    },
+    {
+      "category": "colors",
+      "value": "white",
+      "score": 1.242,
+      "sourceCount": 2,
+      "keywords": [
+        "モノトーンコーデ"
+      ]
+    },
+    {
+      "category": "colors",
+      "value": "gray",
+      "score": 1.242,
+      "sourceCount": 2,
+      "keywords": [
+        "モノトーンコーデ"
+      ]
+    },
+    {
+      "category": "patterns",
+      "value": "solid",
+      "score": 1.242,
+      "sourceCount": 2,
+      "keywords": [
+        "モノトーンコーデ"
+      ]
+    }
+  ]
+}

@@ -1,18 +1,52 @@
 {
-  "updatedAt": "2026-09-30",
-  "updateIntent": "2026年秋冬の最新メンズ情報を複数媒体で照合し、日常で使える色・柄・素材・シルエットへ変換。処理日時: 2026-09-30 JST",
+  "updatedAt": "2026-10-05",
+  "updateIntent": "公開トレンドキーワードの週次集計を推薦属性へ変換。画像・投稿本文・ユーザー情報は保存しない。処理日時: 2026-10-05 JST",
   "current": {
-    "season": "2026 秋冬",
-    "title": "ブラウンとレッドでつくる、端正なレトロ・トラッド",
-    "updatedAt": "2026-09-30",
-    "validUntil": "2026-11-30",
-    "colors": ["brown", "black", "gray", "red", "navy"],
-    "patterns": ["solid", "check"],
-    "materials": ["leather", "knit", "wool"],
-    "silhouettes": ["slim", "wide", "regular", "short"],
-    "styles": ["classic", "clean", "sporty"],
-    "tags": ["モノトーン＆ブラウン", "深みのあるレッド", "チェック", "レザーとコーデュロイ"],
-    "sourceLabel": "2026秋冬メンズ（UNITED ARROWS / Vogue / GQ / WEAR）",
-    "sourceUrl": "https://store.united-arrows.co.jp/ua_columns/brand/bym/feature/article/men_autumn_outfits"
+    "season": "2026 秋",
+    "title": "「スウェットパンツ コーデ」と「Y2K ファッション」の要素を取り入れる",
+    "updatedAt": "2026-10-05",
+    "validUntil": "2026-11-16",
+    "colors": [
+      "blue",
+      "black",
+      "white",
+      "gray",
+      "brown"
+    ],
+    "patterns": [
+      "solid",
+      "check"
+    ],
+    "materials": [
+      "knit",
+      "denim",
+      "leather"
+    ],
+    "silhouettes": [
+      "slim",
+      "wide",
+      "regular",
+      "short"
+    ],
+    "styles": [
+      "trendy",
+      "casual",
+      "minimal"
+    ],
+    "tags": [
+      "スウェットパンツ コーデ",
+      "Y2K ファッション",
+      "カジュアルコーデ",
+      "フェス 服装"
+    ],
+    "sourceLabel": "WEARトレンドキーワード（総合・メンズ公開集計）",
+    "sourceUrl": "https://wear.jp/men-keyword/",
+    "automation": {
+      "mode": "wear-public-keywords",
+      "confidence": 1,
+      "sampleSize": 27,
+      "sourceCount": 2,
+      "reviewRequired": true
+    }
   }
 }

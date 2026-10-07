@@ -1,4 +1,4 @@
-// 追加意図: ルール結果を維持したJev・Claude補正、未設定時フォールバック、秘密鍵のサーバー限定を回帰確認する。処理日時: 2026-10-03 19:08 JST
+// 追加意図: 一括登録による公開キャッシュ更新後も、Jev・Claude補正とルールフォールバックを回帰確認する。処理日時: 2026-10-07 13:18 JST
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
@@ -20,7 +20,7 @@ assert.match(functionSource, /Deno\.env\.get\("ANTHROPIC_API_KEY"\)/, "Anthropic
 assert.match(functionSource, /mode: "rules"/, "API未設定時のルールフォールバックが必要です");
 assert.match(functionSource, /JEV_CONFIDENCE_THRESHOLD/, "Jevの低確信度をClaudeへ引き継いでください");
 assert.match(migrationSource, /ai_preference_profiles/, "Claudeの好みプロフィール保存先が必要です");
-assert.match(html, /app\.js\?v=16/, "公開キャッシュ番号を更新してください");
+assert.match(html, /app\.js\?v=17/, "公開キャッシュ番号を更新してください");
 
 const context = vm.createContext({
   console, URL, Blob, FormData, Intl, Date, Math, Set, Map, JSON,

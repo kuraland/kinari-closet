@@ -1,4 +1,4 @@
-/* 更新意図: 4方向提案にルール・Jev・Claudeの判定状態を追加し、スマホでも判定根拠を見分けやすくする。処理日時: 2026-10-03 19:08 JST */
+/* 更新意図: 既存UIを維持しつつ、複数写真の確認・一括登録をスマホでも扱いやすくする。処理日時: 2026-10-07 13:31 JST */
 :root {
   --ink: #252923;
   --muted: #73766e;
@@ -281,6 +281,26 @@ input[type="range"] { width: 100%; accent-color: var(--sage); }
 .item-dialog::backdrop { background: rgba(37,41,35,.45); backdrop-filter: blur(4px); }
 .dialog-card { padding: 30px; background: var(--surface); }
 .dialog-heading { display: flex; justify-content: space-between; align-items: start; margin-bottom: 24px; }
+.visually-hidden-file { position: fixed; width: 1px; height: 1px; overflow: hidden; opacity: 0; pointer-events: none; }
+.batch-dialog { width: min(980px, calc(100% - 24px)); }
+.batch-lead { max-width: 620px; margin: 7px 0 0; color: var(--muted); font-size: 10px; line-height: 1.6; }
+.batch-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 15px; padding: 12px 14px; border-radius: 11px; background: var(--sage-soft); }
+.batch-toolbar p { margin: 0; color: var(--sage-dark); font-size: 10px; font-weight: 700; }
+.batch-add-button { position: relative; flex: 0 0 auto; overflow: hidden; cursor: pointer; }
+.batch-add-button input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
+.batch-register-list { display: grid; gap: 10px; max-height: min(58vh, 620px); overflow-y: auto; padding-right: 4px; }
+.batch-register-item { display: grid; grid-template-columns: 104px minmax(0, 1fr) auto; align-items: center; gap: 14px; padding: 12px; border: 1px solid var(--line); border-radius: 13px; background: #fff; }
+.batch-register-item figure { position: relative; overflow: hidden; width: 104px; aspect-ratio: 1; margin: 0; border-radius: 10px; background: #eeeae0; }
+.batch-register-item figure img { width: 100%; height: 100%; object-fit: cover; }
+.batch-register-item figcaption { position: absolute; top: 7px; left: 7px; display: grid; width: 22px; height: 22px; place-items: center; border-radius: 50%; background: rgba(255,255,255,.9); color: var(--sage-dark); font-size: 9px; font-weight: 700; }
+.batch-register-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; min-width: 0; }
+.batch-register-fields .full, .batch-register-fields > small { grid-column: 1 / -1; }
+.batch-register-fields > small { overflow: hidden; color: var(--muted); font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
+.batch-remove-button { align-self: stretch; padding: 9px 11px; border: 0; border-radius: 9px; background: #f5eee9; color: #9c503d; cursor: pointer; font-size: 9px; font-weight: 700; }
+.batch-remove-button:hover { background: #efe1d9; }
+.batch-empty { min-height: 180px; display: grid; align-content: center; justify-items: center; gap: 6px; border: 1px dashed var(--line); border-radius: 13px; color: var(--muted); }
+.batch-empty strong { color: var(--ink); font-size: 13px; }
+.batch-empty span { font-size: 10px; }
 .item-form-grid { display: grid; grid-template-columns: 280px 1fr; gap: 24px; }
 .photo-drop { position: relative; aspect-ratio: 4/5; display: grid; place-items: center; overflow: hidden; background: #f1eee7; border: 1px dashed #cfc8ba; border-radius: 14px; cursor: pointer; }
 .photo-drop input { position: absolute; opacity: 0; }
@@ -394,6 +414,16 @@ input[type="range"] { width: 100%; accent-color: var(--sage); }
   .fields-grid { grid-template-columns: 1fr; }
   .field.full { grid-column: auto; }
   .dialog-card { padding: 22px 18px; }
+  .batch-toolbar { align-items: stretch; flex-direction: column; }
+  .batch-add-button { justify-content: center; }
+  .batch-register-list { max-height: 56vh; }
+  .batch-register-item { grid-template-columns: 76px minmax(0, 1fr); align-items: start; gap: 10px; padding: 10px; }
+  .batch-register-item figure { width: 76px; }
+  .batch-register-fields { grid-template-columns: 1fr; }
+  .batch-register-fields .full, .batch-register-fields > small { grid-column: auto; }
+  .batch-remove-button { grid-column: 1 / -1; min-height: 36px; }
+  .batch-dialog .dialog-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .batch-dialog .dialog-actions button { width: 100%; font-size: 12px; white-space: nowrap; }
   .cloud-actions { display: grid; grid-template-columns: 1fr; }
   .look-reference-list { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .look-dialog .dialog-actions { display: grid; grid-template-columns: 1fr; }

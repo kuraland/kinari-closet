@@ -1,9 +1,10 @@
-/* 更新意図: 既存ルールを常時維持し、API設定時だけJevとClaudeで候補を再順位付けする段階式推薦を追加。処理日時: 2026-10-03 19:08 JST */
+/* 更新意図: 1件登録を残しつつ、複数写真を確認して最大20点まで一括登録できる導線を追加。処理日時: 2026-10-07 13:18 JST */
 const DB_NAME = "kinari-closet";
 const DB_VERSION = 2;
 const SETTINGS_KEY = "kinari-stylist-settings";
 const PREFERENCE_HALF_LIFE_DAYS = 120;
 const MAX_CANDIDATE_OUTFITS = 10;
+const MAX_BATCH_ITEMS = 20;
 const MAX_AI_RANKING_CANDIDATES = 12;
 const AI_RANKING_WEIGHT = .35;
 const CANDIDATE_QUALITY = Object.freeze({ score: 62, practical: 50, harmony: 58 });
@@ -109,6 +110,9 @@ let cloudSyncTimer = null;
 let pendingLook = null;
 let lookGenerationInProgress = false;
 let outfitRankingRequestId = 0;
+let batchDrafts = [];
+let batchProcessing = false;
+let batchSessionId = 0;
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
@@ -144,6 +148,17 @@ function storeRequest(store, mode, action, value) {
 const getAll = (store) => storeRequest(store, "readonly", "getAll");
 const put = (store, value) => storeRequest(store, "readwrite", "put", value);
 const remove = (store, key) => storeRequest(store, "readwrite", "delete", key);
+
+function putMany(store, values) {
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(store, "readwrite");
+    const objectStore = transaction.objectStore(store);
+    values.forEach((value) => objectStore.put(value));
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error);
+    transaction.onabort = () => reject(transaction.error || new Error("一括保存を中断しました"));
+  });
+}
 
 async function retireLegacyWomenSamples() {
   const savedItems = await getAll("items");
@@ -527,11 +542,11 @@ function categoryFromName(filename) {
   const name = filename.toLowerCase();
   const groups = [
     ["shoes", /shoe|sneaker|boot|derby|loafer|sandal|靴|スニーカー|ブーツ|ローファー|サンダル/],
-    ["bottoms", /pants|jeans|skirt|trouser|パンツ|デニム|スカート/],
-    ["outer", /jacket|coat|cardigan|ジャケット|コート|カーディガン/],
+    ["bottoms", /bottom|pants|jeans|skirt|trouser|パンツ|デニム|スカート/],
+    ["outer", /outer|jacket|coat|cardigan|ジャケット|コート|カーディガン/],
     ["onepiece", /dress|onepiece|ワンピ|ドレス/],
-    ["accessory", /bag|hat|belt|バッグ|帽子|ベルト/],
-    ["tops", /shirt|sweater|knit|sweat|hoodie|tee|シャツ|ニット|スウェット|パーカー|Tシャツ/],
+    ["accessory", /accessory|bag|hat|belt|バッグ|帽子|ベルト/],
+    ["tops", /top|shirt|sweater|knit|sweat|hoodie|tee|シャツ|ニット|スウェット|パーカー|Tシャツ/],
   ];
   return groups.find(([, pattern]) => pattern.test(name))?.[0] || "tops";
 }
@@ -785,6 +800,157 @@ function candidateDefaults(category, color, name, filename = "") {
     style: profile.style,
     statement: profile.statement,
   };
+}
+
+function batchDraftMetadata(filename, detectedColor = "white") {
+  const category = categoryFromName(filename);
+  const color = colorFromName(filename) || detectedColor;
+  const name = `${labels.color[color] || ""}の${labels.category[category] || "服"}`;
+  return { name, category, color, ...candidateDefaults(category, color, name, filename) };
+}
+
+function batchOptions(values, selected) {
+  return Object.entries(values).map(([value, label]) =>
+    `<option value="${value}"${value === selected ? " selected" : ""}>${escapeHTML(label)}</option>`
+  ).join("");
+}
+
+function renderBatchRegister() {
+  const list = $("#batch-register-list");
+  const progress = $("#batch-progress");
+  const saveButton = $("#save-batch-items");
+  const closeButtons = $$('[data-close-batch-dialog]');
+  const addInput = $("#batch-add-photo");
+
+  list.innerHTML = batchDrafts.length ? batchDrafts.map((draft, index) => `
+    <article class="batch-register-item" data-batch-id="${draft.id}">
+      <figure><img src="${escapeHTML(draft.photoUrl)}" alt="${escapeHTML(draft.name)}のプレビュー"><figcaption>${index + 1}</figcaption></figure>
+      <div class="batch-register-fields">
+        <label class="field full"><span>名前</span><input required maxlength="120" data-batch-field="name" value="${escapeHTML(draft.name)}"></label>
+        <label class="field"><span>カテゴリ</span><select data-batch-field="category">${batchOptions(labels.category, draft.category)}</select></label>
+        <label class="field"><span>色</span><select data-batch-field="color">${batchOptions(labels.color, draft.color)}</select></label>
+        <small title="${escapeHTML(draft.filename)}">${escapeHTML(draft.filename)}</small>
+      </div>
+      <button class="batch-remove-button" type="button" data-remove-batch-item="${draft.id}" aria-label="${escapeHTML(draft.name)}を一括登録から除外">除外</button>
+    </article>
+  `).join("") : `<div class="batch-empty"><strong>登録する写真がありません</strong><span>「写真を追加」から選んでください。</span></div>`;
+
+  progress.textContent = batchProcessing
+    ? `写真を端末内で判定しています… ${batchDrafts.length}/${MAX_BATCH_ITEMS}点準備済み`
+    : `${batchDrafts.length}/${MAX_BATCH_ITEMS}点を登録予定`;
+  saveButton.disabled = batchProcessing || !batchDrafts.length || batchDrafts.some((draft) => !draft.name.trim());
+  saveButton.textContent = batchDrafts.length ? `${batchDrafts.length}点をまとめて登録` : "まとめて登録";
+  closeButtons.forEach((button) => button.disabled = batchProcessing);
+  addInput.disabled = batchProcessing || batchDrafts.length >= MAX_BATCH_ITEMS;
+}
+
+function clearBatchRegister() {
+  batchSessionId += 1;
+  batchDrafts.forEach((draft) => revokePhotoURL(draft.photoUrl));
+  batchDrafts = [];
+  batchProcessing = false;
+  $("#batch-photo-picker").value = "";
+  $("#batch-add-photo").value = "";
+  renderBatchRegister();
+}
+
+async function addBatchFiles(selectedFiles) {
+  if (batchProcessing) return;
+  const existingKeys = new Set(batchDrafts.map((draft) => draft.fileKey));
+  const available = MAX_BATCH_ITEMS - batchDrafts.length;
+  const imageFiles = [...selectedFiles]
+    .filter((file) => file.type.startsWith("image/"))
+    .filter((file) => !existingKeys.has(`${file.name}:${file.size}:${file.lastModified}`));
+  const files = imageFiles.slice(0, available);
+  if (!files.length) {
+    showToast(available ? "新しい画像を選んでください" : `一括登録は最大${MAX_BATCH_ITEMS}点です`);
+    return;
+  }
+  if (imageFiles.length > available) showToast(`最大${MAX_BATCH_ITEMS}点までを登録対象にしました`);
+
+  const sessionId = batchSessionId;
+  batchProcessing = true;
+  renderBatchRegister();
+  let failedCount = 0;
+  for (const file of files) {
+    if (sessionId !== batchSessionId) return;
+    try {
+      const { blob, detectedColor } = await compressAndAnalyze(file);
+      if (sessionId !== batchSessionId) return;
+      const metadata = batchDraftMetadata(file.name, detectedColor);
+      batchDrafts.push({
+        id: createId(),
+        ...metadata,
+        suggestedName: metadata.name,
+        status: "ready",
+        notes: "",
+        photo: blob,
+        photoUrl: objectURL(blob),
+        filename: file.name,
+        fileKey: `${file.name}:${file.size}:${file.lastModified}`,
+      });
+      renderBatchRegister();
+    } catch (error) {
+      failedCount += 1;
+      console.error("一括登録用の画像を読み込めませんでした", file.name, error);
+    }
+  }
+  if (sessionId !== batchSessionId) return;
+  batchProcessing = false;
+  renderBatchRegister();
+  if (failedCount) showToast(`${failedCount}枚は読み込めなかったため除外しました`);
+}
+
+function openBatchRegister(files) {
+  clearBatchRegister();
+  $("#batch-dialog").showModal();
+  addBatchFiles(files);
+}
+
+function updateBatchDraft(event) {
+  const field = event.target.dataset.batchField;
+  if (!field) return;
+  const card = event.target.closest("[data-batch-id]");
+  const draft = batchDrafts.find((entry) => entry.id === card?.dataset.batchId);
+  if (!draft) return;
+  draft[field] = event.target.value;
+  if (field === "category" || field === "color") {
+    const nextSuggestedName = `${labels.color[draft.color] || ""}の${labels.category[draft.category] || "服"}`;
+    if (!draft.name.trim() || draft.name === draft.suggestedName) draft.name = nextSuggestedName;
+    draft.suggestedName = nextSuggestedName;
+    Object.assign(draft, candidateDefaults(draft.category, draft.color, draft.name, draft.filename));
+    renderBatchRegister();
+  } else {
+    $("#save-batch-items").disabled = batchDrafts.some((entry) => !entry.name.trim());
+  }
+}
+
+async function saveBatchItems(event) {
+  event.preventDefault();
+  if (batchProcessing || !batchDrafts.length || batchDrafts.some((draft) => !draft.name.trim())) return;
+  const saveButton = $("#save-batch-items");
+  const count = batchDrafts.length;
+  saveButton.disabled = true;
+  saveButton.textContent = "まとめて保存しています…";
+  try {
+    const baseTime = Date.now();
+    const newItems = batchDrafts.map((draft, index) => {
+      const { photoUrl: _photoUrl, filename: _filename, fileKey: _fileKey, suggestedName: _suggestedName, ...item } = draft;
+      const timestamp = new Date(baseTime + index).toISOString();
+      return { ...item, createdAt: timestamp, updatedAt: timestamp, lastWornAt: null };
+    });
+    await putMany("items", newItems);
+    items = await getAll("items");
+    $("#batch-dialog").close();
+    renderAll();
+    switchView("closet");
+    queueCloudSync();
+    showToast(`${count}点をクローゼットに追加しました`);
+  } catch (error) {
+    console.error("服の一括保存に失敗しました", error);
+    showToast("一括保存できませんでした。写真を減らしてもう一度お試しください");
+    renderBatchRegister();
+  }
 }
 
 function suggestedCandidateName() {
@@ -1725,6 +1891,9 @@ function bindEvents() {
     const archive = event.target.closest("[data-archive-item]");
     const restore = event.target.closest("[data-restore-item]");
     const restoreSamples = event.target.closest("[data-restore-samples]");
+    const openBatchPicker = event.target.closest("[data-open-batch-picker]");
+    const closeBatch = event.target.closest("[data-close-batch-dialog]");
+    const removeBatchItem = event.target.closest("[data-remove-batch-item]");
     const rating = event.target.closest("[data-feedback]");
     const feedbackReason = event.target.closest("[data-feedback-reason]");
     const includeSamples = event.target.closest("[data-include-samples]");
@@ -1743,6 +1912,14 @@ function bindEvents() {
     if (archive) archiveItem(archive.dataset.archiveItem);
     if (restore) restoreItem(restore.dataset.restoreItem);
     if (restoreSamples) restoreSampleItems();
+    if (openBatchPicker) $("#batch-photo-picker").click();
+    if (closeBatch && !batchProcessing) $("#batch-dialog").close();
+    if (removeBatchItem && !batchProcessing) {
+      const draft = batchDrafts.find((entry) => entry.id === removeBatchItem.dataset.removeBatchItem);
+      revokePhotoURL(draft?.photoUrl);
+      batchDrafts = batchDrafts.filter((entry) => entry.id !== removeBatchItem.dataset.removeBatchItem);
+      renderBatchRegister();
+    }
     if (rating) {
       if (rating.dataset.feedback === "worn") saveFeedback(rating);
       else showFeedbackReasons(rating);
@@ -1806,8 +1983,31 @@ function bindEvents() {
   });
   $("#candidate-form").addEventListener("submit", saveCandidate);
   $("#candidate-dialog").addEventListener("close", resetCandidateForm);
+  $("#batch-photo-picker").addEventListener("change", (event) => {
+    const files = [...event.target.files];
+    if (files.length) openBatchRegister(files);
+  });
+  $("#batch-add-photo").addEventListener("change", (event) => {
+    const files = [...event.target.files];
+    event.target.value = "";
+    if (files.length) addBatchFiles(files);
+  });
+  $("#batch-register-list").addEventListener("input", updateBatchDraft);
+  $("#batch-register-list").addEventListener("change", updateBatchDraft);
+  $("#batch-form").addEventListener("submit", saveBatchItems);
+  $("#batch-dialog").addEventListener("close", clearBatchRegister);
+  $("#batch-dialog").addEventListener("cancel", (event) => {
+    if (batchProcessing) event.preventDefault();
+  });
   $("#item-photo").addEventListener("change", async (event) => {
-    const file = event.target.files[0];
+    const files = [...event.target.files];
+    if (files.length > 1) {
+      event.target.value = "";
+      $("#item-dialog").close();
+      openBatchRegister(files);
+      return;
+    }
+    const file = files[0];
     if (!file) return;
     $("#analysis-hint").textContent = "写真を軽量化し、色を確認しています…";
     try {

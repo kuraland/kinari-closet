@@ -1,4 +1,4 @@
-/* 更新意図: 写真からのボトムス判定、気温別の必須レイヤー、編集時の画像保持を強化。処理日時: 2026-10-07 14:17 JST */
+/* 更新意図: 写真からのボトムス判定、気温別の必須レイヤー、編集時の画像・自動名保持を強化。処理日時: 2026-10-07 14:32 JST */
 const DB_NAME = "kinari-closet";
 const DB_VERSION = 2;
 const SETTINGS_KEY = "kinari-stylist-settings";
@@ -804,6 +804,8 @@ function openItemDialog(item = null) {
     $("#item-name").value = item.name;
     $("#item-category").value = item.category;
     $("#item-color").value = item.color;
+    const genericName = suggestedItemName(item.category, item.color);
+    lastSuggestedItemName = item.name === genericName ? genericName : "";
     $("#item-season").value = item.season;
     $("#item-warmth").value = item.warmth;
     $("#item-formality").value = item.formality;

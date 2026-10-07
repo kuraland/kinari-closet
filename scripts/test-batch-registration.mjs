@@ -12,13 +12,14 @@ const html = fs.readFileSync(path.join(root, "index.html"), "utf8");
 assert.match(html, /id="item-photo"[^>]+multiple/, "通常登録から複数写真を選べるようにしてください");
 assert.match(html, /id="batch-photo-picker"[^>]+multiple/, "クローゼットに一括登録の入口が必要です");
 assert.match(html, /id="batch-dialog"/, "一括登録の確認画面が必要です");
-assert.match(html, /app\.js\?v=18/, "公開キャッシュ番号を更新してください");
+assert.match(html, /app\.js\?v=19/, "公開キャッシュ番号を更新してください");
 assert.match(html, /styles\.css\?v=16/, "一括登録のスマホ調整を確実に配信してください");
 assert.match(appSource, /const MAX_BATCH_ITEMS = 20;/, "スマホ負荷を抑える上限が必要です");
 assert.match(appSource, /await putMany\("items", newItems\)/, "一括登録は単一トランザクションで保存してください");
 assert.match(appSource, /queueCloudSync\(\);\s*showToast\(`\$\{count\}点をクローゼットに追加しました`\)/s, "保存後の同期は一度だけ実行してください");
 assert.match(appSource, /\.\.\.\(existing \|\| \{\}\)/, "編集時は写真パスなど既存情報を保持してください");
 assert.match(appSource, /currentPhoto \?\? existing\?\.photo \?\? null/, "カテゴリ変更だけで写真を失ってはいけません");
+assert.match(appSource, /lastSuggestedItemName = item\.name === genericName \? genericName : ""/, "自動生成名はカテゴリ修正に合わせて更新してください");
 
 const context = vm.createContext({
   console, URL, Blob, FormData, Intl, Date, Math, Set, Map, JSON,

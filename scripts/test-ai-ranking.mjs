@@ -20,7 +20,7 @@ assert.match(functionSource, /Deno\.env\.get\("ANTHROPIC_API_KEY"\)/, "Anthropic
 assert.match(functionSource, /mode: "rules"/, "API未設定時のルールフォールバックが必要です");
 assert.match(functionSource, /JEV_CONFIDENCE_THRESHOLD/, "Jevの低確信度をClaudeへ引き継いでください");
 assert.match(migrationSource, /ai_preference_profiles/, "Claudeの好みプロフィール保存先が必要です");
-assert.match(html, /app\.js\?v=18/, "公開キャッシュ番号を更新してください");
+assert.match(html, /app\.js\?v=19/, "公開キャッシュ番号を更新してください");
 
 const context = vm.createContext({
   console, URL, Blob, FormData, Intl, Date, Math, Set, Map, JSON,

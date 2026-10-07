@@ -40,6 +40,8 @@
 
 > 更新意図: 一括登録で写真形状からボトムスを判定し、20℃以下の軽いトップスにはアウターを必須化。カテゴリ編集後も画像・同期情報・自動生成名の整合性を保持。処理日時: 2026-10-07 14:32 JST
 
+> 更新意図: ログイン中だけGemini画像解析を使い、項目別確信度の確認、API未設定時の端末内フォールバック、AI推測とユーザー確定値の差分記録を追加。処理日時: 2026-10-07 23:35 JST
+
 服の写真と属性をブラウザ内に保存し、天気・気温・予定・気分に応じたコーデを最大4案提案するローカルファーストのプロトタイプです。
 
 ## 公開版
@@ -63,7 +65,10 @@ python3 -m http.server 4173
 - 写真付きの服の登録と編集
 - 複数写真をまとめて選び、名前・カテゴリ・色を一覧確認して最大20点まで一括登録
 - 登録時は写真・名前・カテゴリ・色だけを確認し、季節・素材などは自動仮入力
-- 画像の軽量化、代表色とファイル名由来カテゴリの仮入力
+- 画像の軽量化、代表色とファイル名由来カテゴリの端末内仮入力
+- ログイン・API設定時は、カテゴリ、色、細分類、柄、素材、形、丈、袖丈、厚み、重ね着役割、テイストをGeminiで仮入力
+- AIの項目別確信度を緑・黄・赤で表示し、曖昧な項目だけ人が確認
+- AI未設定・未ログイン・通信失敗・日次上限時は端末内判定へ自動復帰
 - カテゴリ、色、季節、暖かさ、フォーマル度、在庫状態の管理
 - 名前・色・メモの検索と絞り込み
 - 気温、天気、予定、気分に応じたコーデ最大4案
@@ -100,7 +105,7 @@ python3 -m http.server 4173
 ## Supabaseの初期設定
 
 1. Supabaseで無料プロジェクトを1つ作成します。
-2. SQL Editorで`supabase/migrations/202609290001_initial_schema.sql`を実行し、続けて`supabase/migrations/202610010001_actual_only_setting.sql`と`supabase/migrations/202610070001_garment_profiles.sql`を実行します。
+2. SQL Editorで`supabase/migrations/202609290001_initial_schema.sql`を実行し、続けて`supabase/migrations/202610010001_actual_only_setting.sql`、`supabase/migrations/202610070001_garment_profiles.sql`、`supabase/migrations/202610070002_garment_analysis_runs.sql`を実行します。
 3. Project SettingsのAPI画面からProject URLと公開用Publishable key（旧形式ではanon key）を確認します。
 4. `supabase-config.js`へ次のように設定します。プロパティ名は互換性のため`anonKey`ですが、Publishable keyもそのまま使えます。
 
@@ -122,6 +127,32 @@ window.KINARI_SUPABASE_CONFIG = Object.freeze({
 ログイン後の同期は最終更新日時によるLast Write Winsです。端末にしかない服はクラウドへ追加し、クラウドにしかない服は端末へ復元します。サンプル30点は各端末に同梱済みなので同期対象外です。アーカイブを削除の代わりに使い、別端末から意図せず復活することを防ぎます。
 
 変換処理のテストは`node scripts/test-cloud-sync.cjs`で実行できます。
+
+## 服写真のAI解析設定
+
+未設定でも従来の端末内判定で登録できます。設定すると、ログイン中の通常登録・一括登録・購入候補でGeminiによる構造化画像解析を追加します。画像はブラウザで最大1000pxのJPEGへ軽量化してから送信し、解析用テーブルには画像自体を保存しません。
+
+1. SQL Editorで`supabase/migrations/202610070002_garment_analysis_runs.sql`を実行します。
+2. Edge Functionをデプロイします。
+
+```bash
+supabase functions deploy analyze-garment
+```
+
+3. Google AI StudioでAPIキーを作成し、Supabase Secretへ登録します。キーを`supabase-config.js`やGitHubへ置かないでください。
+
+```bash
+supabase secrets set GEMINI_API_KEY
+```
+
+必要ならモデルと1ユーザー24時間あたりの成功回数上限を変更できます。
+
+```bash
+supabase secrets set GEMINI_VISION_MODEL=gemini-3.1-flash-lite
+supabase secrets set GARMENT_ANALYSIS_DAILY_LIMIT=60
+```
+
+AI確信度80%以上は緑、60〜79%は黄色、60%未満は赤で表示します。60%未満の項目はAI値を自動適用せず、端末内推測を残します。登録時にはAIの推測値とユーザーの確定値を`garment_analysis_runs`へ分離して保存し、画像は保存しません。無料枠と有料枠ではデータ利用条件が異なるため、本運用前に[Gemini API料金とデータ利用条件](https://ai.google.dev/gemini-api/docs/pricing)を確認してください。
 
 ## AI着用イメージ生成の初期設定
 
@@ -186,7 +217,7 @@ supabase secrets set JEV_MARGIN_THRESHOLD=0.12
 
 ## 現時点の「AI」の範囲
 
-コーデの選定は、①実用ルールによる候補生成、②色・柄・素材・シルエットの相性、③評価履歴から作る個人別の特徴量、④`trends.json`の今季情報、を常に土台にします。任意のAPIキーが設定されている場合、⑤Jevによる候補の構造化採点、⑥Claudeによる長期的な好みプロフィール更新と難しい候補の再判定、を追加します。AIを有効にしてもルールを置き換えず、外部APIが利用できない場合はルール結果へ自動復帰します。服登録時の写真解析は引き続き端末内の簡易画像解析と名前由来の属性推定です。
+コーデの選定は、①実用ルールによる候補生成、②色・柄・素材・シルエットの相性、③評価履歴から作る個人別の特徴量、④`trends.json`の今季情報、を常に土台にします。任意のAPIキーが設定されている場合、⑤Jevによる候補の構造化採点、⑥Claudeによる長期的な好みプロフィール更新と難しい候補の再判定、を追加します。AIを有効にしてもルールを置き換えず、外部APIが利用できない場合はルール結果へ自動復帰します。服登録時は端末内の簡易推測を必ず先に実行し、ログイン中かつGemini API設定済みの場合だけ画像AIの結果で補います。
 
 今季トレンドはアプリ本体から分離しており、`trends.json`を更新すれば推薦へ反映できます。`updatedAt`と`validUntil`から鮮度を判定し、期限切れの情報は中立点へ寄せて影響を自動的に弱めます。2026年秋冬の初期設定は、[UNITED ARROWSの2026秋メンズ](https://store.united-arrows.co.jp/ua_columns/brand/bym/feature/article/men_autumn_outfits)、[VogueのFW26メンズ予測](https://www.vogue.com/article/5-menswear-trend-predictions-for-fall-winter-2026)、[GQのFW26メンズトレンド](https://www.gq.com/story/the-9-fall-winter-2026-menswear-trends-to-try-right-now)を照合し、ブラウン、深いレッド、チェック、レザー、コーデュロイ、細身トップス、レトロスポーツを推薦属性へ置き換えています。
 
@@ -204,7 +235,7 @@ supabase secrets set JEV_MARGIN_THRESHOLD=0.12
 
 ## 実装済み：買い物中のコーデ確認から購入後登録まで
 
-店頭で気になる服を撮影した時点では、手持ち服とは分けて「購入候補」として仮登録します。端末内の簡易画像解析でカテゴリと色を仮入力し、現在のクローゼットだけを組み合わせ相手として、購入候補1点につき最大10個のコーデパターンを提案します。この一連の処理に外部AI APIは使いません。
+店頭で気になる服を撮影した時点では、手持ち服とは分けて「購入候補」として仮登録します。未ログイン時は端末内の簡易画像解析、ログイン中かつAPI設定済みの場合はGemini画像解析で特徴を仮入力し、現在のクローゼットだけを組み合わせ相手として、購入候補1点につき最大10個のコーデパターンを提案します。
 
 想定する利用フローは次のとおりです。
 
@@ -220,7 +251,7 @@ supabase secrets set JEV_MARGIN_THRESHOLD=0.12
 ## 次の拡張候補
 
 1. データのJSONエクスポート／復元
-2. 画像認識APIによる種類・柄・素材・シルエットの仮入力
+2. AI画像解析の実測精度レポートとプロンプト改善
 3. 現在地の天気取得
 4. カレンダー予定との連携
 5. 着用写真と細かな評価を使った個人最適化

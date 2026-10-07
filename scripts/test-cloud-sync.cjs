@@ -1,15 +1,19 @@
-// 更新意図: 詳細な服属性を含むSupabase変換と、認証済みAI再順位付け関数を回帰確認する。処理日時: 2026-10-07 22:07 JST
+// 更新意図: 詳細な服属性の同期と、画像解析・確定値記録を含む認証済みEdge Function連携を回帰確認する。処理日時: 2026-10-08 08:10 JST
 const assert = require("node:assert/strict");
 const cloud = require("../cloud-sync.js");
 const { __test } = cloud;
 
 assert.equal(typeof cloud.rankOutfits, "function", "AI再順位付けのEdge Function呼び出しを公開してください");
+assert.equal(typeof cloud.analyzeGarment, "function", "AI画像解析のEdge Function呼び出しを公開してください");
+assert.equal(typeof cloud.confirmGarmentAnalysis, "function", "画像解析の確定値を記録できる必要があります");
 
 const item = {
   id: "item-1",
   name: "白シャツ",
   category: "tops",
+  subcategory: "オックスフォードシャツ",
   color: "white",
+  secondaryColors: ["blue"],
   season: "all",
   warmth: 2,
   formality: 4,
@@ -34,6 +38,8 @@ const item = {
 const row = __test.toGarmentRow(item, "00000000-0000-0000-0000-000000000001", "user/item-1.jpg");
 assert.equal(row.photo_path, "user/item-1.jpg");
 assert.equal(row.updated_at, item.updatedAt);
+assert.equal(row.subcategory, "オックスフォードシャツ");
+assert.deepEqual(row.secondary_colors, ["blue"]);
 assert.equal(row.garment_length, "cropped");
 assert.equal(row.sleeve_length, "long");
 assert.equal(row.thickness, "light");
@@ -43,6 +49,8 @@ assert.equal(row.attribute_source, "user_confirmed");
 const restored = __test.fromGarmentRow(row, "photo-blob");
 assert.equal(restored.name, item.name);
 assert.equal(restored.photo, "photo-blob");
+assert.equal(restored.subcategory, "オックスフォードシャツ");
+assert.deepEqual(restored.secondaryColors, ["blue"]);
 assert.equal(restored.isSample, false);
 assert.equal(restored.garmentLength, "cropped");
 assert.equal(restored.attributeConfidence, 100);

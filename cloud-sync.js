@@ -1,4 +1,4 @@
-/* 更新意図: 服の形・丈・袖丈・厚み・重ね着役割を端末とSupabase間で欠落なく同期する。処理日時: 2026-10-07 22:07 JST */
+/* 更新意図: 服属性の同期に加え、画像AI解析とユーザー確定値の差分を安全に記録する。処理日時: 2026-10-07 23:35 JST */
 (function attachKinariCloud(root) {
   const STORAGE_BUCKET = "garment-images";
   const SDK_URL = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2";
@@ -35,7 +35,9 @@
       id: item.id,
       name: item.name,
       category: item.category,
+      subcategory: item.subcategory || "",
       color: item.color,
+      secondary_colors: Array.isArray(item.secondaryColors) ? item.secondaryColors.slice(0, 3) : [],
       season: item.season,
       warmth: Number(item.warmth),
       formality: Number(item.formality),
@@ -66,7 +68,9 @@
       id: row.id,
       name: row.name,
       category: row.category,
+      subcategory: row.subcategory || "",
       color: row.color,
+      secondaryColors: row.secondary_colors || [],
       season: row.season,
       warmth: Number(row.warmth),
       formality: Number(row.formality),
@@ -222,6 +226,43 @@
     return result.data;
   }
 
+  async function analyzeGarment(payload) {
+    requireClient();
+    const result = await client.functions.invoke("analyze-garment", { body: payload });
+    if (result.error) {
+      const context = result.error.context;
+      let body = null;
+      try { body = await context?.json?.(); } catch { body = null; }
+      const error = new Error(body?.message || result.error.message || "AI画像解析を利用できません");
+      error.code = body?.error || "AI_ANALYSIS_FAILED";
+      error.remaining = body?.remaining;
+      throw error;
+    }
+    return result.data;
+  }
+
+  async function confirmGarmentAnalysis({ analysisId, targetLocalId, predictedAttributes, finalAttributes }) {
+    if (!analysisId) return null;
+    requireClient();
+    const comparableFields = [
+      "category", "color", "season", "warmth", "formality", "pattern", "material", "silhouette",
+      "garmentLength", "sleeveLength", "thickness", "layerRole", "style", "statement",
+    ];
+    const finalProfile = Object.fromEntries(comparableFields.map((field) => [field, finalAttributes?.[field] ?? null]));
+    const correctedFields = comparableFields.filter((field) =>
+      predictedAttributes?.[field] !== undefined && String(predictedAttributes[field]) !== String(finalProfile[field])
+    );
+    const result = await client.from("garment_analysis_runs").update({
+      target_local_id: targetLocalId || null,
+      final_attributes: finalProfile,
+      corrected_fields: correctedFields,
+      status: "confirmed",
+      updated_at: new Date().toISOString(),
+    }).eq("id", analysisId);
+    ensureNoError(result, "画像解析の確認結果を保存できません");
+    return { correctedFields };
+  }
+
   async function uploadPhoto(item, userId, previousPath) {
     if (!(item.photo instanceof Blob)) return previousPath || item.photoPath || null;
     const extension = item.photo.type === "image/png" ? "png" : "jpg";
@@ -341,6 +382,8 @@
     signOut,
     generateLook,
     rankOutfits,
+    analyzeGarment,
+    confirmGarmentAnalysis,
     syncAll,
     getUser: () => currentUser,
     __test: { isoTime, isLocalNewer, toGarmentRow, fromGarmentRow, toFeedbackRow, fromFeedbackRow },

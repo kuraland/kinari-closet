@@ -1,4 +1,4 @@
-/* 更新意図: 服の重要属性だけをカテゴリ別に確認できるコンパクトな登録UIを追加。処理日時: 2026-10-07 22:07 JST */
+/* 更新意図: AI画像解析の高確信度・要確認・低確信度を登録項目ごとに視覚化する。処理日時: 2026-10-08 08:10 JST */
 :root {
   --ink: #252923;
   --muted: #73766e;
@@ -327,6 +327,16 @@ input[type="range"] { width: 100%; accent-color: var(--sage); }
 .item-analysis-summary p { display: grid; gap: 3px; margin: 0; }
 .item-analysis-summary strong { font-size: 11px; }
 .item-analysis-summary small { color: #687165; font-size: 9px; line-height: 1.5; }
+.analysis-badge { display: inline-flex; margin-left: 5px; padding: 2px 6px; border-radius: 999px; font-size: 8px; font-style: normal; font-weight: 700; vertical-align: 1px; }
+.analysis-badge.high { background: #dcebd8; color: #3f6843; }
+.analysis-badge.review { background: #fff0bd; color: #80651c; }
+.analysis-badge.low { background: #f5d8d2; color: #914c40; }
+.field[data-ai-state] > span::after { margin-left: 5px; padding: 1px 5px; border-radius: 999px; content: "AI " attr(data-ai-confidence) "%"; font-size: 7px; font-weight: 700; }
+.field[data-ai-state="high"] > span::after { background: #dcebd8; color: #3f6843; }
+.field[data-ai-state="review"] > span::after { background: #fff0bd; color: #80651c; }
+.field[data-ai-state="low"] > span::after { background: #f5d8d2; color: #914c40; }
+.field[data-ai-state="review"] :is(input, select, textarea) { border-color: #d2ad45; background: #fffdf4; }
+.field[data-ai-state="low"] :is(input, select, textarea) { border-color: #cf8174; background: #fff8f6; }
 .advanced-fields { overflow: hidden; border: 1px solid var(--line); border-radius: 11px; background: #fff; }
 .advanced-fields summary { display: flex; align-items: center; gap: 9px; padding: 13px 14px; color: var(--ink); cursor: pointer; list-style: none; }
 .advanced-fields summary::-webkit-details-marker { display: none; }

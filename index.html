@@ -15,10 +15,10 @@
       href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Noto+Sans+JP:wght@400;500;600;700&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="styles.css?v=17" />
+    <link rel="stylesheet" href="styles.css?v=18" />
   </head>
   <body>
-    <!-- 更新意図: 服の形・丈・袖丈・厚み・重ね着役割を分離し、カテゴリ別の短い確認で推薦精度を上げる。処理日時: 2026-10-07 22:07 JST -->
+    <!-- 更新意図: Gemini画像解析の確信度を登録画面へ表示し、未設定時は端末内判定へ戻す。処理日時: 2026-10-08 08:10 JST -->
     <div class="app-shell">
       <aside class="sidebar" aria-label="メインナビゲーション">
         <a class="brand" href="#home" aria-label="KINARI ホーム">
@@ -173,7 +173,7 @@
             <div><span>01</span><strong>写真を撮る</strong><small>スマホのカメラからそのまま登録</small></div>
             <div><span>02</span><strong>最大10案を確認</strong><small>良質な案だけを表示。少なさも判断材料に</small></div>
             <div><span>03</span><strong>買ったら追加</strong><small>ワンタップでクローゼットへ</small></div>
-            <p><span aria-hidden="true">⌁</span> APIは使わず、この端末内だけで処理・保存します</p>
+            <p><span aria-hidden="true">⌁</span> 未ログイン時は端末内だけ、ログイン中は設定済みのAI解析を利用します</p>
           </article>
 
           <div class="candidate-heading">
@@ -313,13 +313,13 @@
                 <input id="candidate-photo" type="file" accept="image/*" />
               </label>
             </div>
-            <p class="analysis-hint" id="candidate-analysis-hint">写真はAPIへ送らず、この端末内で軽量化します。</p>
+            <p class="analysis-hint" id="candidate-analysis-hint">写真を端末内で軽量化し、ログイン中はAIでも服の特徴を確認します。</p>
           </div>
 
           <div class="quick-register-panel">
             <div class="quick-register-heading">
-              <strong>確認は3項目だけ</strong>
-              <span>写真から色とカテゴリを仮入力します。違うところだけ直してください。</span>
+              <strong>AIの仮判定を確認</strong>
+              <span>カテゴリ・色・形を仮入力します。黄色や赤色の項目を中心に確認してください。</span>
             </div>
             <div class="fields-grid quick-fields">
               <label class="field full"><span>候補の名前</span><input id="candidate-name" required placeholder="例：気になったブラウンのシャツ" /></label>
@@ -383,13 +383,13 @@
                 <small>1枚は通常登録、複数枚は一括登録になります</small>
               </span>
             </label>
-            <p class="analysis-hint" id="analysis-hint">写真を選ぶと、色と服の特徴を仮入力します。</p>
+            <p class="analysis-hint" id="analysis-hint">写真を選ぶと服の特徴を仮入力します。ログイン中はAI解析も利用します。</p>
           </div>
 
           <div class="quick-register-panel">
             <div class="quick-register-heading">
-              <strong>まずは3項目だけ</strong>
-              <span>ほかの特徴は写真と入力内容から仮設定します</span>
+              <strong>AIの仮判定を確認</strong>
+              <span>API未設定時も端末内の推測で入力します。違うところだけ直してください</span>
             </div>
 
             <div class="fields-grid quick-fields">
@@ -479,7 +479,7 @@
           <div>
             <p class="eyebrow">BULK ADD TO CLOSET</p>
             <h2>服を一括登録</h2>
-            <p class="batch-lead">写真ごとに名前・カテゴリ・色を確認し、違うところだけ直してください。</p>
+            <p class="batch-lead">写真ごとにAIまたは端末内で仮判定します。黄色や赤色の項目を中心に確認してください。</p>
           </div>
           <button class="icon-button" type="button" data-close-batch-dialog aria-label="閉じる">×</button>
         </div>
@@ -582,7 +582,7 @@
 
     <div class="toast" id="toast" role="status"></div>
     <script src="supabase-config.js?v=1"></script>
-    <script src="cloud-sync.js?v=5"></script>
-    <script src="app.js?v=20"></script>
+    <script src="cloud-sync.js?v=6"></script>
+    <script src="app.js?v=21"></script>
   </body>
 </html>

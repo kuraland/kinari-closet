@@ -1,4 +1,4 @@
-/* 更新意図: 写真だけでは誤認しやすい服の形・丈・袖丈・厚み・重ね着役割を分離し、少ない確認操作で推薦精度を上げる。処理日時: 2026-10-07 22:07 JST */
+/* 更新意図: Gemini画像解析を任意で追加し、確信度表示・ユーザー確認・端末内推測への自動復帰を一体化する。処理日時: 2026-10-07 23:35 JST */
 const DB_NAME = "kinari-closet";
 const DB_VERSION = 2;
 const SETTINGS_KEY = "kinari-stylist-settings";
@@ -7,6 +7,9 @@ const MAX_CANDIDATE_OUTFITS = 10;
 const MAX_BATCH_ITEMS = 20;
 const MAX_AI_RANKING_CANDIDATES = 12;
 const AI_RANKING_WEIGHT = .35;
+const AI_AUTO_APPLY_THRESHOLD = 60;
+const AI_HIGH_CONFIDENCE_THRESHOLD = 80;
+const AI_BATCH_CONCURRENCY = 3;
 const CANDIDATE_QUALITY = Object.freeze({ score: 62, practical: 50, harmony: 58 });
 const FEEDBACK_REASONS = Object.freeze({
   like: [
@@ -109,9 +112,12 @@ let trendFreshness = { factor: 1, label: "最新", ageDays: 0 };
 let currentPhoto = null;
 let currentPhotoUrl = null;
 let lastSuggestedItemName = "";
+let currentItemAnalysis = null;
 let currentCandidatePhoto = null;
 let currentCandidatePhotoUrl = null;
 let lastSuggestedCandidateName = "";
+let currentCandidateAnalysis = null;
+let garmentAnalysisAvailability = "unknown";
 let toastTimer;
 let cloudUser = null;
 let cloudSyncPromise = null;
@@ -798,6 +804,169 @@ async function compressAndAnalyze(file) {
   return { blob, detectedColor, detectedCategory };
 }
 
+function blobToDataUrl(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(reader.error || new Error("画像を送信形式へ変換できません"));
+    reader.readAsDataURL(blob);
+  });
+}
+
+function canUseGarmentAI() {
+  return garmentAnalysisAvailability !== "unavailable" && Boolean(
+    cloudUser && window.KinariCloud?.isConfigured?.() && window.KinariCloud?.analyzeGarment
+  );
+}
+
+function confidenceFor(analysis, field) {
+  return Number(analysis?.fieldConfidences?.[field] ?? analysis?.confidence ?? 0);
+}
+
+function shouldApplyAIField(analysis, field) {
+  return analysis?.imageQuality?.usable !== false && confidenceFor(analysis, field) >= AI_AUTO_APPLY_THRESHOLD;
+}
+
+function setSelectValue(selector, value) {
+  const select = $(selector);
+  if (!select || value === undefined || value === null) return false;
+  const resolved = String(value);
+  if (![...select.options].some((option) => option.value === resolved)) return false;
+  select.value = resolved;
+  return true;
+}
+
+function analysisBadgeMarkup(analysis) {
+  if (!analysis) return "";
+  const confidence = Number(analysis.confidence || 0);
+  const quality = analysis.imageQuality || {};
+  if (quality.usable === false) return `<em class="analysis-badge low">撮り直し推奨</em>`;
+  if (confidence >= AI_HIGH_CONFIDENCE_THRESHOLD) return `<em class="analysis-badge high">AI解析 ${confidence}%</em>`;
+  if (confidence >= AI_AUTO_APPLY_THRESHOLD) return `<em class="analysis-badge review">AI解析 ${confidence}%・要確認</em>`;
+  return `<em class="analysis-badge low">AI解析 ${confidence}%・参考</em>`;
+}
+
+function clearAnalysisFieldStates(rootSelector) {
+  $$(`${rootSelector} .field`).forEach((field) => {
+    delete field.dataset.aiConfidence;
+    delete field.dataset.aiState;
+  });
+}
+
+function renderAnalysisFieldStates(prefix, analysis) {
+  const formSelector = prefix === "item" ? "#item-form" : "#candidate-form";
+  clearAnalysisFieldStates(formSelector);
+  if (!analysis) return;
+  const idByField = {
+    category: `${prefix}-category`, color: `${prefix}-color`, silhouette: `${prefix}-silhouette`,
+    garmentLength: `${prefix}-garment-length`, sleeveLength: `${prefix}-sleeve-length`,
+    thickness: `${prefix}-thickness`, layerRole: `${prefix}-layer-role`,
+    season: `${prefix}-season`, warmth: `${prefix}-warmth`, formality: `${prefix}-formality`,
+    pattern: `${prefix}-pattern`, material: `${prefix}-material`, style: `${prefix}-style`, statement: `${prefix}-statement`,
+  };
+  Object.entries(idByField).forEach(([field, id]) => {
+    const input = document.getElementById(id);
+    const wrapper = input?.closest(".field");
+    if (!wrapper) return;
+    const confidence = confidenceFor(analysis, field);
+    wrapper.dataset.aiConfidence = String(confidence);
+    wrapper.dataset.aiState = confidence >= AI_HIGH_CONFIDENCE_THRESHOLD ? "high" : confidence >= AI_AUTO_APPLY_THRESHOLD ? "review" : "low";
+  });
+}
+
+function localGuessFor(category, color, name = "", filename = "") {
+  return { name, category, color, ...candidateDefaults(category, color, name, filename) };
+}
+
+async function requestGarmentAnalysis(blob, targetKind, filename, localGuess) {
+  if (!canUseGarmentAI()) return null;
+  try {
+    const result = await window.KinariCloud.analyzeGarment({
+      imageDataUrl: await blobToDataUrl(blob),
+      targetKind,
+      filename,
+      localGuess,
+    });
+    garmentAnalysisAvailability = "available";
+    return result;
+  } catch (error) {
+    if (["AI_NOT_CONFIGURED", "DAILY_LIMIT"].includes(error.code)) garmentAnalysisAvailability = "unavailable";
+    throw error;
+  }
+}
+
+function applyItemVisionAnalysis(analysis) {
+  if (!analysis?.attributes) return;
+  const attrs = analysis.attributes;
+  currentItemAnalysis = analysis;
+  if (shouldApplyAIField(analysis, "category")) setSelectValue("#item-category", attrs.category);
+  if (shouldApplyAIField(analysis, "color")) setSelectValue("#item-color", attrs.color);
+  const category = $("#item-category").value;
+  configureProfileFields("item", category, attrs);
+  const fieldSelectors = {
+    season: "#item-season", warmth: "#item-warmth", formality: "#item-formality", pattern: "#item-pattern",
+    material: "#item-material", silhouette: "#item-silhouette", garmentLength: "#item-garment-length",
+    sleeveLength: "#item-sleeve-length", thickness: "#item-thickness", layerRole: "#item-layer-role",
+    style: "#item-style", statement: "#item-statement",
+  };
+  Object.entries(fieldSelectors).forEach(([field, selector]) => {
+    if (shouldApplyAIField(analysis, field)) setSelectValue(selector, attrs[field]);
+  });
+  const nameInput = $("#item-name");
+  if (attrs.displayName && Number(analysis.confidence || 0) >= AI_AUTO_APPLY_THRESHOLD && (!nameInput.value.trim() || nameInput.value === lastSuggestedItemName)) {
+    nameInput.value = attrs.displayName;
+    lastSuggestedItemName = attrs.displayName;
+  }
+  renderAnalysisFieldStates("item", analysis);
+  updateItemAnalysisSummary();
+}
+
+function applyCandidateVisionAnalysis(analysis) {
+  if (!analysis?.attributes) return;
+  const attrs = analysis.attributes;
+  currentCandidateAnalysis = analysis;
+  if (shouldApplyAIField(analysis, "category")) setSelectValue("#candidate-category", attrs.category);
+  if (shouldApplyAIField(analysis, "color")) setSelectValue("#candidate-color", attrs.color);
+  configureProfileFields("candidate", $("#candidate-category").value, attrs);
+  const fieldSelectors = {
+    silhouette: "#candidate-silhouette", garmentLength: "#candidate-garment-length",
+    sleeveLength: "#candidate-sleeve-length", thickness: "#candidate-thickness", layerRole: "#candidate-layer-role",
+  };
+  Object.entries(fieldSelectors).forEach(([field, selector]) => {
+    if (shouldApplyAIField(analysis, field)) setSelectValue(selector, attrs[field]);
+  });
+  const nameInput = $("#candidate-name");
+  if (attrs.displayName && Number(analysis.confidence || 0) >= AI_AUTO_APPLY_THRESHOLD && (!nameInput.value.trim() || nameInput.value === lastSuggestedCandidateName)) {
+    nameInput.value = attrs.displayName;
+    lastSuggestedCandidateName = attrs.displayName;
+  }
+  renderAnalysisFieldStates("candidate", analysis);
+  updateCandidateAnalysisSummary();
+}
+
+function confirmedItemAttributes(item) {
+  return {
+    category: item.category, color: item.color, season: item.season, warmth: item.warmth, formality: item.formality,
+    pattern: item.pattern, material: item.material, silhouette: item.silhouette, garmentLength: item.garmentLength,
+    sleeveLength: item.sleeveLength, thickness: item.thickness, layerRole: item.layerRole, style: item.style,
+    statement: item.statement,
+  };
+}
+
+async function confirmVisionAnalysis(analysis, targetLocalId, finalAttributes) {
+  if (!analysis?.analysisId || !cloudUser || !window.KinariCloud?.confirmGarmentAnalysis) return;
+  try {
+    await window.KinariCloud.confirmGarmentAnalysis({
+      analysisId: analysis.analysisId,
+      targetLocalId,
+      predictedAttributes: analysis.attributes,
+      finalAttributes,
+    });
+  } catch (error) {
+    console.warn("画像解析の確認結果をクラウドへ記録できませんでした", error);
+  }
+}
+
 function suggestedItemName(category = $("#item-category").value, color = $("#item-color").value) {
   return `${labels.color[color] || ""}の${labels.category[category] || "服"}`;
 }
@@ -822,7 +991,7 @@ function updateItemAnalysisSummary() {
   });
   $("#item-analysis-summary").innerHTML = `
     <span aria-hidden="true">✦</span>
-    <p><strong>${labels.color[color]}・${labels.category[category]}・${labels.style[profile.style]}</strong><small>${labels.material[profile.material]}／${labels.silhouette[profile.silhouette]}／${labels.thickness[profile.thickness]}。写真だけで曖昧な特徴は下で確認できます</small></p>`;
+    <p><strong>${labels.color[color]}・${labels.category[category]}・${labels.style[profile.style]} ${analysisBadgeMarkup(currentItemAnalysis)}</strong><small>${labels.material[profile.material]}／${labels.silhouette[profile.silhouette]}／${labels.thickness[profile.thickness]}。${currentItemAnalysis?.imageQuality?.guidance ? escapeHTML(currentItemAnalysis.imageQuality.guidance) : "写真だけで曖昧な特徴は下で確認できます"}</small></p>`;
 }
 
 function applyQuickItemInference({ updateName = true, filename = "" } = {}) {
@@ -884,12 +1053,14 @@ function resetItemForm() {
   $("#item-advanced").open = false;
   $("#photo-preview").hidden = true;
   $("#photo-placeholder").hidden = false;
-  $("#analysis-hint").textContent = "写真を選ぶと、色と服の特徴を仮入力します。";
+  $("#analysis-hint").textContent = "写真を選ぶと服の特徴を仮入力します。ログイン中はAI解析も利用します。";
   $("#item-analysis-summary").innerHTML = `<span aria-hidden="true">✦</span><p><strong>写真を選ぶと仮判定します</strong><small>違うところだけ後から直せます</small></p>`;
   revokePhotoURL(currentPhotoUrl);
   currentPhoto = null;
   currentPhotoUrl = null;
   lastSuggestedItemName = "";
+  currentItemAnalysis = null;
+  clearAnalysisFieldStates("#item-form");
   configureProfileFields("item", "tops", getItemProfile({ category: "tops", warmth: 2 }));
 }
 
@@ -952,6 +1123,8 @@ async function saveItem(event) {
       ...(existing || {}),
       id: existing?.id || createId(),
       name: $("#item-name").value.trim(), category: $("#item-category").value, color: $("#item-color").value,
+      subcategory: currentItemAnalysis?.attributes?.subcategory || existing?.subcategory || "",
+      secondaryColors: currentItemAnalysis?.attributes?.secondaryColors || existing?.secondaryColors || [],
       season: $("#item-season").value, warmth: Number($("#item-warmth").value), formality: Number($("#item-formality").value),
       pattern: $("#item-pattern").value, material: $("#item-material").value, silhouette: $("#item-silhouette").value,
       garmentLength: $("#item-garment-length").value, sleeveLength: $("#item-sleeve-length").value,
@@ -960,9 +1133,11 @@ async function saveItem(event) {
       style: $("#item-style").value, statement: Number($("#item-statement").value),
       status: existing?.status === "archived" ? "archived" : $("#item-status").value,
       notes: $("#item-notes").value.trim(), photo: currentPhoto ?? existing?.photo ?? null,
+      visionAnalysisId: currentItemAnalysis?.analysisId || existing?.visionAnalysisId || null,
       createdAt: existing?.createdAt || now, updatedAt: now, lastWornAt: existing?.lastWornAt || null,
     };
     await put("items", item);
+    await confirmVisionAnalysis(currentItemAnalysis, item.id, confirmedItemAttributes(item));
     items = await getAll("items");
     $("#item-dialog").close();
     renderAll();
@@ -1009,6 +1184,42 @@ function batchDraftMetadata(filename, detectedColor = "white", detectedCategory 
   return { name, category, color, ...candidateDefaults(category, color, name, filename) };
 }
 
+function applyBatchVisionAnalysis(draft, analysis) {
+  if (!draft || !analysis?.attributes) return;
+  const attrs = analysis.attributes;
+  const category = shouldApplyAIField(analysis, "category") ? attrs.category : draft.category;
+  const color = shouldApplyAIField(analysis, "color") ? attrs.color : draft.color;
+  const fallback = candidateDefaults(category, color, draft.name, draft.filename);
+  Object.assign(draft, fallback, { category, color });
+  [
+    "season", "warmth", "formality", "pattern", "material", "silhouette", "garmentLength",
+    "sleeveLength", "thickness", "layerRole", "style", "statement",
+  ].forEach((field) => {
+    if (shouldApplyAIField(analysis, field)) draft[field] = attrs[field];
+  });
+  if (attrs.displayName && Number(analysis.confidence || 0) >= AI_AUTO_APPLY_THRESHOLD && (!draft.name.trim() || draft.name === draft.suggestedName)) {
+    draft.name = attrs.displayName;
+    draft.suggestedName = attrs.displayName;
+  }
+  draft.subcategory = attrs.subcategory || "";
+  draft.secondaryColors = attrs.secondaryColors || [];
+  draft.visionAnalysisId = analysis.analysisId || null;
+  draft.visionAnalysisConfidence = Number(analysis.confidence || 0);
+  draft.visionAnalysis = analysis;
+}
+
+async function runWithConcurrency(entries, worker, concurrency = AI_BATCH_CONCURRENCY) {
+  let cursor = 0;
+  async function runNext() {
+    while (cursor < entries.length) {
+      const index = cursor;
+      cursor += 1;
+      await worker(entries[index], index);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(concurrency, entries.length) }, () => runNext()));
+}
+
 function batchOptions(values, selected) {
   return Object.entries(values).map(([value, label]) =>
     `<option value="${value}"${value === selected ? " selected" : ""}>${escapeHTML(label)}</option>`
@@ -1036,14 +1247,14 @@ function renderBatchRegister() {
         <label class="field"><span>カテゴリ</span><select data-batch-field="category">${batchOptions(labels.category, draft.category)}</select></label>
         <label class="field"><span>色</span><select data-batch-field="color">${batchOptions(labels.color, draft.color)}</select></label>
         ${!["shoes", "accessory"].includes(draft.category) ? `<label class="field"><span>${draft.category === "bottoms" ? "パンツの形" : "ゆとり"}</span><select data-batch-field="silhouette">${batchSilhouetteOptions(draft.category, draft.silhouette)}</select></label>` : ""}
-        <small title="${escapeHTML(draft.filename)}">${escapeHTML(draft.filename)}</small>
+        <small title="${escapeHTML(draft.filename)}">${escapeHTML(draft.filename)} ${analysisBadgeMarkup(draft.visionAnalysis)}</small>
       </div>
       <button class="batch-remove-button" type="button" data-remove-batch-item="${draft.id}" aria-label="${escapeHTML(draft.name)}を一括登録から除外">除外</button>
     </article>
   `).join("") : `<div class="batch-empty"><strong>登録する写真がありません</strong><span>「写真を追加」から選んでください。</span></div>`;
 
   progress.textContent = batchProcessing
-    ? `写真を端末内で判定しています… ${batchDrafts.length}/${MAX_BATCH_ITEMS}点準備済み`
+    ? `写真を判定しています… ${batchDrafts.length}/${MAX_BATCH_ITEMS}点準備済み`
     : `${batchDrafts.length}/${MAX_BATCH_ITEMS}点を登録予定`;
   saveButton.disabled = batchProcessing || !batchDrafts.length || batchDrafts.some((draft) => !draft.name.trim());
   saveButton.textContent = batchDrafts.length ? `${batchDrafts.length}点をまとめて登録` : "まとめて登録";
@@ -1079,13 +1290,14 @@ async function addBatchFiles(selectedFiles) {
   batchProcessing = true;
   renderBatchRegister();
   let failedCount = 0;
+  const aiTargets = [];
   for (const file of files) {
     if (sessionId !== batchSessionId) return;
     try {
       const { blob, detectedColor, detectedCategory } = await compressAndAnalyze(file);
       if (sessionId !== batchSessionId) return;
       const metadata = batchDraftMetadata(file.name, detectedColor, detectedCategory);
-      batchDrafts.push({
+      const draft = {
         id: createId(),
         ...metadata,
         suggestedName: metadata.name,
@@ -1095,12 +1307,27 @@ async function addBatchFiles(selectedFiles) {
         photoUrl: objectURL(blob),
         filename: file.name,
         fileKey: `${file.name}:${file.size}:${file.lastModified}`,
-      });
+      };
+      batchDrafts.push(draft);
+      aiTargets.push({ draft, blob, file });
       renderBatchRegister();
     } catch (error) {
       failedCount += 1;
       console.error("一括登録用の画像を読み込めませんでした", file.name, error);
     }
+  }
+  if (sessionId === batchSessionId && canUseGarmentAI() && aiTargets.length) {
+    await runWithConcurrency(aiTargets, async ({ draft, blob, file }) => {
+      if (sessionId !== batchSessionId || !canUseGarmentAI()) return;
+      try {
+        const analysis = await requestGarmentAnalysis(blob, "batch", file.name, localGuessFor(draft.category, draft.color, draft.name, file.name));
+        if (sessionId !== batchSessionId || !analysis) return;
+        applyBatchVisionAnalysis(draft, analysis);
+        renderBatchRegister();
+      } catch (error) {
+        console.warn("一括登録のAI画像解析を利用できませんでした", file.name, error.code || error.message);
+      }
+    });
   }
   if (sessionId !== batchSessionId) return;
   batchProcessing = false;
@@ -1141,12 +1368,14 @@ async function saveBatchItems(event) {
   saveButton.textContent = "まとめて保存しています…";
   try {
     const baseTime = Date.now();
-    const newItems = batchDrafts.map((draft, index) => {
-      const { photoUrl: _photoUrl, filename: _filename, fileKey: _fileKey, suggestedName: _suggestedName, ...item } = draft;
+    const preparedItems = batchDrafts.map((draft, index) => {
+      const { photoUrl: _photoUrl, filename: _filename, fileKey: _fileKey, suggestedName: _suggestedName, visionAnalysis, ...item } = draft;
       const timestamp = new Date(baseTime + index).toISOString();
-      return { ...item, createdAt: timestamp, updatedAt: timestamp, lastWornAt: null };
+      const savedItem = { ...item, attributeSource: "user_confirmed", attributeConfidence: 100, createdAt: timestamp, updatedAt: timestamp, lastWornAt: null };
+      return { item: savedItem, analysis: visionAnalysis };
     });
-    await putMany("items", newItems);
+    await putMany("items", preparedItems.map(({ item }) => item));
+    await Promise.all(preparedItems.map(({ item, analysis }) => confirmVisionAnalysis(analysis, item.id, confirmedItemAttributes(item))));
     items = await getAll("items");
     $("#batch-dialog").close();
     renderAll();
@@ -1180,7 +1409,7 @@ function updateCandidateAnalysisSummary() {
   };
   $("#candidate-analysis-summary").innerHTML = `
     <span aria-hidden="true">✦</span>
-    <p><strong>${labels.color[color]}・${labels.category[category]}・${labels.style[profile.style]}</strong><small>この候補を必ず含む、相性のよいコーデを最大10案まで探します</small></p>`;
+    <p><strong>${labels.color[color]}・${labels.category[category]}・${labels.style[profile.style]} ${analysisBadgeMarkup(currentCandidateAnalysis)}</strong><small>${currentCandidateAnalysis?.imageQuality?.guidance ? escapeHTML(currentCandidateAnalysis.imageQuality.guidance) : "この候補を必ず含む、相性のよいコーデを最大10案まで探します"}</small></p>`;
 }
 
 function applyQuickCandidateInference({ filename = "", updateName = true } = {}) {
@@ -1200,12 +1429,14 @@ function resetCandidateForm() {
   $("#candidate-form").reset();
   $("#candidate-photo-preview").hidden = true;
   $("#candidate-photo-placeholder").hidden = false;
-  $("#candidate-analysis-hint").textContent = "写真はAPIへ送らず、この端末内で軽量化します。";
+  $("#candidate-analysis-hint").textContent = "写真を端末内で軽量化し、ログイン中はAIでも服の特徴を確認します。";
   $("#candidate-analysis-summary").innerHTML = `<span aria-hidden="true">✦</span><p><strong>写真を選ぶと仮判定します</strong><small>品質基準を満たす組み合わせだけを最大10案まで表示します</small></p>`;
   revokePhotoURL(currentCandidatePhotoUrl);
   currentCandidatePhoto = null;
   currentCandidatePhotoUrl = null;
   lastSuggestedCandidateName = "";
+  currentCandidateAnalysis = null;
+  clearAnalysisFieldStates("#candidate-form");
   configureProfileFields("candidate", "tops", candidateDefaults("tops", "white", ""));
 }
 
@@ -1216,7 +1447,7 @@ function openCandidateDialog() {
 
 async function loadCandidatePhoto(file) {
   if (!file) return;
-  $("#candidate-analysis-hint").textContent = "写真を端末内で軽量化し、色を確認しています…";
+  $("#candidate-analysis-hint").textContent = "写真を軽量化し、服の特徴を確認しています…";
   try {
     const { blob, detectedColor, detectedCategory } = await compressAndAnalyze(file);
     currentCandidatePhoto = blob;
@@ -1228,7 +1459,23 @@ async function loadCandidatePhoto(file) {
     $("#candidate-color").value = colorFromName(file.name) || detectedColor;
     $("#candidate-category").value = categoryFromName(file.name, detectedCategory || "tops");
     applyQuickCandidateInference({ filename: file.name });
-    $("#candidate-analysis-hint").textContent = "写真から仮入力しました。違うところだけ修正してください。";
+    if (canUseGarmentAI()) {
+      $("#candidate-analysis-hint").textContent = "AIがカテゴリ・形・丈・素材を確認しています…";
+      try {
+        const localGuess = localGuessFor($("#candidate-category").value, $("#candidate-color").value, $("#candidate-name").value, file.name);
+        const analysis = await requestGarmentAnalysis(blob, "candidate", file.name, localGuess);
+        if (analysis) applyCandidateVisionAnalysis(analysis);
+        $("#candidate-analysis-hint").textContent = analysis?.imageQuality?.usable === false
+          ? (analysis.imageQuality.guidance || "服全体が明るく写るように撮り直すと、判定が正確になります。")
+          : "AIが仮入力しました。黄色・赤色の項目を中心に確認してください。";
+      } catch (error) {
+        $("#candidate-analysis-hint").textContent = error.message || "AIを利用できないため、端末内で仮入力しました。";
+      }
+    } else {
+      $("#candidate-analysis-hint").textContent = cloudUser
+        ? "AI未設定のため、端末内で仮入力しました。違うところだけ修正してください。"
+        : "端末内で仮入力しました。ログインするとAI画像解析も利用できます。";
+    }
   } catch (error) {
     console.error(error);
     $("#candidate-analysis-hint").textContent = "画像を読み込めませんでした。別の写真をお試しください。";
@@ -1253,12 +1500,23 @@ async function saveCandidate(event) {
     const category = $("#candidate-category").value;
     const color = $("#candidate-color").value;
     const name = $("#candidate-name").value.trim();
+    const defaults = candidateDefaults(category, color, name);
+    const aiAttributes = currentCandidateAnalysis?.attributes || {};
     const candidate = {
       id: createId(),
       name,
       category,
       color,
-      ...candidateDefaults(category, color, name),
+      ...defaults,
+      season: aiAttributes.season || defaults.season,
+      warmth: Number(aiAttributes.warmth || defaults.warmth),
+      formality: Number(aiAttributes.formality || defaults.formality),
+      pattern: aiAttributes.pattern || defaults.pattern,
+      material: aiAttributes.material || defaults.material,
+      style: aiAttributes.style || defaults.style,
+      statement: Number(aiAttributes.statement || defaults.statement),
+      subcategory: aiAttributes.subcategory || "",
+      secondaryColors: aiAttributes.secondaryColors || [],
       silhouette: $("#candidate-silhouette").value,
       garmentLength: $("#candidate-garment-length").value,
       sleeveLength: $("#candidate-sleeve-length").value,
@@ -1266,6 +1524,7 @@ async function saveCandidate(event) {
       layerRole: $("#candidate-layer-role").value,
       attributeSource: "user_confirmed",
       attributeConfidence: 100,
+      visionAnalysisId: currentCandidateAnalysis?.analysisId || null,
       photo: currentCandidatePhoto,
       price: Number($("#candidate-price").value) || null,
       store: $("#candidate-store").value.trim(),
@@ -1274,6 +1533,7 @@ async function saveCandidate(event) {
       updatedAt: now,
     };
     await put("candidates", candidate);
+    await confirmVisionAnalysis(currentCandidateAnalysis, candidate.id, confirmedItemAttributes(candidate));
     purchaseCandidates = await getAll("candidates");
     $("#candidate-dialog").close();
     renderCandidates();
@@ -1316,7 +1576,9 @@ async function purchaseCandidate(id) {
     id: createId(),
     name: candidate.name,
     category: candidate.category,
+    subcategory: candidate.subcategory || "",
     color: candidate.color,
+    secondaryColors: candidate.secondaryColors || [],
     season: candidate.season,
     warmth: candidate.warmth,
     formality: candidate.formality,
@@ -1329,6 +1591,7 @@ async function purchaseCandidate(id) {
     layerRole: candidate.layerRole,
     attributeSource: candidate.attributeSource || "user_confirmed",
     attributeConfidence: Number(candidate.attributeConfidence || 100),
+    visionAnalysisId: candidate.visionAnalysisId || null,
     style: candidate.style,
     statement: candidate.statement,
     photo: candidate.photo,
@@ -2301,7 +2564,7 @@ function bindEvents() {
     }
     const file = files[0];
     if (!file) return;
-    $("#analysis-hint").textContent = "写真を軽量化し、色を確認しています…";
+    $("#analysis-hint").textContent = "写真を軽量化し、服の特徴を確認しています…";
     try {
       const { blob, detectedColor, detectedCategory } = await compressAndAnalyze(file);
       const resolvedColor = colorFromName(file.name) || detectedColor;
@@ -2314,7 +2577,23 @@ function bindEvents() {
       $("#item-color").value = resolvedColor;
       $("#item-category").value = categoryFromName(file.name, detectedCategory || "tops");
       applyQuickItemInference({ filename: file.name });
-      $("#analysis-hint").textContent = "写真から仮入力しました。違うところだけ修正してください。";
+      if (canUseGarmentAI()) {
+        $("#analysis-hint").textContent = "AIがカテゴリ・形・丈・素材を確認しています…";
+        try {
+          const localGuess = localGuessFor($("#item-category").value, $("#item-color").value, $("#item-name").value, file.name);
+          const analysis = await requestGarmentAnalysis(blob, "item", file.name, localGuess);
+          if (analysis) applyItemVisionAnalysis(analysis);
+          $("#analysis-hint").textContent = analysis?.imageQuality?.usable === false
+            ? (analysis.imageQuality.guidance || "服全体が明るく写るように撮り直すと、判定が正確になります。")
+            : "AIが仮入力しました。黄色・赤色の項目を中心に確認してください。";
+        } catch (error) {
+          $("#analysis-hint").textContent = error.message || "AIを利用できないため、端末内で仮入力しました。";
+        }
+      } else {
+        $("#analysis-hint").textContent = cloudUser
+          ? "AI未設定のため、端末内で仮入力しました。違うところだけ修正してください。"
+          : "端末内で仮入力しました。ログインするとAI画像解析も利用できます。";
+      }
     } catch (error) {
       console.error(error);
       $("#analysis-hint").textContent = "画像を読み込めませんでした。別の写真をお試しください。";

@@ -1,4 +1,4 @@
-/* 更新意図: 1件登録を残しつつ、複数写真を確認して最大20点まで一括登録できる導線を追加。処理日時: 2026-10-07 13:18 JST */
+/* 更新意図: 写真からのボトムス判定、気温別の必須レイヤー、編集時の画像保持を強化。処理日時: 2026-10-07 14:17 JST */
 const DB_NAME = "kinari-closet";
 const DB_VERSION = 2;
 const SETTINGS_KEY = "kinari-stylist-settings";
@@ -113,6 +113,7 @@ let outfitRankingRequestId = 0;
 let batchDrafts = [];
 let batchProcessing = false;
 let batchSessionId = 0;
+const displayPhotoURLCache = new WeakMap();
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
@@ -384,6 +385,12 @@ function objectURL(photo) {
   return URL.createObjectURL(photo);
 }
 
+function displayPhotoURL(photo) {
+  if (!photo || typeof photo === "string") return photo || "";
+  if (!displayPhotoURLCache.has(photo)) displayPhotoURLCache.set(photo, URL.createObjectURL(photo));
+  return displayPhotoURLCache.get(photo);
+}
+
 function revokePhotoURL(url) {
   if (url?.startsWith("blob:")) URL.revokeObjectURL(url);
 }
@@ -538,7 +545,7 @@ function switchView(view) {
   if (view === "shopping") renderCandidates();
 }
 
-function categoryFromName(filename) {
+function categoryFromName(filename, fallback = "tops") {
   const name = filename.toLowerCase();
   const groups = [
     ["shoes", /shoe|sneaker|boot|derby|loafer|sandal|靴|スニーカー|ブーツ|ローファー|サンダル/],
@@ -548,7 +555,7 @@ function categoryFromName(filename) {
     ["accessory", /accessory|bag|hat|belt|バッグ|帽子|ベルト/],
     ["tops", /top|shirt|sweater|knit|sweat|hoodie|tee|シャツ|ニット|スウェット|パーカー|Tシャツ/],
   ];
-  return groups.find(([, pattern]) => pattern.test(name))?.[0] || "tops";
+  return groups.find(([, pattern]) => pattern.test(name))?.[0] || fallback;
 }
 
 function colorFromName(filename) {
@@ -598,6 +605,81 @@ async function loadPhoto(file) {
   }
 }
 
+function inferCategoryFromImageData(pixels, width, height) {
+  const borderPixels = [];
+  const addPixel = (x, y) => {
+    const index = (y * width + x) * 4;
+    if (pixels[index + 3] > 32) borderPixels.push([pixels[index], pixels[index + 1], pixels[index + 2]]);
+  };
+  for (let x = 0; x < width; x += 1) {
+    addPixel(x, 0);
+    addPixel(x, height - 1);
+  }
+  for (let y = 1; y < height - 1; y += 1) {
+    addPixel(0, y);
+    addPixel(width - 1, y);
+  }
+  if (!borderPixels.length) return null;
+
+  const background = borderPixels.reduce((sum, color) => color.map((value, index) => value + sum[index]), [0, 0, 0])
+    .map((value) => value / borderPixels.length);
+  const distanceFromBackground = (red, green, blue) => Math.sqrt(
+    (red - background[0]) ** 2 + (green - background[1]) ** 2 + (blue - background[2]) ** 2
+  );
+  const borderDistances = borderPixels.map((color) => distanceFromBackground(...color));
+  const borderMean = borderDistances.reduce((sum, value) => sum + value, 0) / borderDistances.length;
+  const borderDeviation = Math.sqrt(borderDistances.reduce((sum, value) => sum + (value - borderMean) ** 2, 0) / borderDistances.length);
+  const threshold = clamp(borderMean + borderDeviation * 2.5, 14, 46);
+  const mask = new Uint8Array(width * height);
+  let foregroundCount = 0;
+  let minX = width;
+  let maxX = -1;
+  let minY = height;
+  let maxY = -1;
+
+  for (let y = 1; y < height - 1; y += 1) {
+    for (let x = 1; x < width - 1; x += 1) {
+      const index = (y * width + x) * 4;
+      if (pixels[index + 3] <= 32 || distanceFromBackground(pixels[index], pixels[index + 1], pixels[index + 2]) <= threshold) continue;
+      mask[y * width + x] = 1;
+      foregroundCount += 1;
+      minX = Math.min(minX, x);
+      maxX = Math.max(maxX, x);
+      minY = Math.min(minY, y);
+      maxY = Math.max(maxY, y);
+    }
+  }
+
+  if (foregroundCount < width * height * .035 || maxX <= minX || maxY <= minY) return null;
+  const garmentWidth = maxX - minX + 1;
+  const garmentHeight = maxY - minY + 1;
+  const aspectRatio = garmentHeight / garmentWidth;
+  if (aspectRatio < 1.2) return null;
+
+  const centerX = (minX + maxX) / 2;
+  const centerHalfWidth = Math.max(1, Math.round(garmentWidth * .075));
+  const sideInset = Math.max(1, Math.round(garmentWidth * .08));
+  const lowerStart = minY + Math.round(garmentHeight * .48);
+  const lowerEnd = minY + Math.round(garmentHeight * .94);
+  let splitRows = 0;
+  let inspectedRows = 0;
+  for (let y = lowerStart; y <= lowerEnd; y += 1) {
+    inspectedRows += 1;
+    let center = 0;
+    let left = 0;
+    let right = 0;
+    for (let x = minX + sideInset; x <= maxX - sideInset; x += 1) {
+      if (!mask[y * width + x]) continue;
+      if (x < centerX - centerHalfWidth) left += 1;
+      else if (x > centerX + centerHalfWidth) right += 1;
+      else center += 1;
+    }
+    if (left && right && center <= 1) splitRows += 1;
+  }
+  const legSplitRatio = splitRows / Math.max(1, inspectedRows);
+  return aspectRatio >= 1.3 && legSplitRatio >= .24 ? "bottoms" : null;
+}
+
 async function compressAndAnalyze(file) {
   const bitmap = await loadPhoto(file);
   const max = 1000;
@@ -609,15 +691,16 @@ async function compressAndAnalyze(file) {
   ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
 
   const sampleCanvas = document.createElement("canvas");
-  sampleCanvas.width = 32; sampleCanvas.height = 32;
+  sampleCanvas.width = 48; sampleCanvas.height = 48;
   const sampleCtx = sampleCanvas.getContext("2d", { willReadFrequently: true });
-  sampleCtx.drawImage(canvas, 0, 0, 32, 32);
-  const pixels = sampleCtx.getImageData(0, 0, 32, 32).data;
+  sampleCtx.drawImage(canvas, 0, 0, 48, 48);
+  const imageData = sampleCtx.getImageData(0, 0, 48, 48);
+  const pixels = imageData.data;
   const colorVotes = {};
   let sampledCount = 0;
-  for (let y = 4; y < 28; y += 1) {
-    for (let x = 4; x < 28; x += 1) {
-      const i = (y * 32 + x) * 4;
+  for (let y = 6; y < 42; y += 1) {
+    for (let x = 6; x < 42; x += 1) {
+      const i = (y * 48 + x) * 4;
       const rgb = [pixels[i], pixels[i + 1], pixels[i + 2]];
       const maxChannel = Math.max(...rgb);
       const minChannel = Math.min(...rgb);
@@ -633,9 +716,10 @@ async function compressAndAnalyze(file) {
   const detectedColor = sampledCount
     ? Object.entries(colorVotes).sort((a, b) => b[1] - a[1])[0][0]
     : "white";
+  const detectedCategory = inferCategoryFromImageData(pixels, 48, 48);
   const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", .82));
   if (typeof bitmap.close === "function") bitmap.close();
-  return { blob, detectedColor };
+  return { blob, detectedColor, detectedCategory };
 }
 
 function suggestedItemName(category = $("#item-category").value, color = $("#item-color").value) {
@@ -759,13 +843,14 @@ async function saveItem(event) {
     const existing = items.find((item) => item.id === $("#item-id").value);
     const now = new Date().toISOString();
     const item = {
+      ...(existing || {}),
       id: existing?.id || createId(),
       name: $("#item-name").value.trim(), category: $("#item-category").value, color: $("#item-color").value,
       season: $("#item-season").value, warmth: Number($("#item-warmth").value), formality: Number($("#item-formality").value),
       pattern: $("#item-pattern").value, material: $("#item-material").value, silhouette: $("#item-silhouette").value,
       style: $("#item-style").value, statement: Number($("#item-statement").value),
       status: existing?.status === "archived" ? "archived" : $("#item-status").value,
-      notes: $("#item-notes").value.trim(), photo: currentPhoto || existing?.photo || null,
+      notes: $("#item-notes").value.trim(), photo: currentPhoto ?? existing?.photo ?? null,
       createdAt: existing?.createdAt || now, updatedAt: now, lastWornAt: existing?.lastWornAt || null,
     };
     await put("items", item);
@@ -802,8 +887,8 @@ function candidateDefaults(category, color, name, filename = "") {
   };
 }
 
-function batchDraftMetadata(filename, detectedColor = "white") {
-  const category = categoryFromName(filename);
+function batchDraftMetadata(filename, detectedColor = "white", detectedCategory = null) {
+  const category = categoryFromName(filename, detectedCategory || "tops");
   const color = colorFromName(filename) || detectedColor;
   const name = `${labels.color[color] || ""}の${labels.category[category] || "服"}`;
   return { name, category, color, ...candidateDefaults(category, color, name, filename) };
@@ -875,9 +960,9 @@ async function addBatchFiles(selectedFiles) {
   for (const file of files) {
     if (sessionId !== batchSessionId) return;
     try {
-      const { blob, detectedColor } = await compressAndAnalyze(file);
+      const { blob, detectedColor, detectedCategory } = await compressAndAnalyze(file);
       if (sessionId !== batchSessionId) return;
-      const metadata = batchDraftMetadata(file.name, detectedColor);
+      const metadata = batchDraftMetadata(file.name, detectedColor, detectedCategory);
       batchDrafts.push({
         id: createId(),
         ...metadata,
@@ -1000,7 +1085,7 @@ async function loadCandidatePhoto(file) {
   if (!file) return;
   $("#candidate-analysis-hint").textContent = "写真を端末内で軽量化し、色を確認しています…";
   try {
-    const { blob, detectedColor } = await compressAndAnalyze(file);
+    const { blob, detectedColor, detectedCategory } = await compressAndAnalyze(file);
     currentCandidatePhoto = blob;
     revokePhotoURL(currentCandidatePhotoUrl);
     currentCandidatePhotoUrl = objectURL(blob);
@@ -1008,7 +1093,7 @@ async function loadCandidatePhoto(file) {
     $("#candidate-photo-preview").hidden = false;
     $("#candidate-photo-placeholder").hidden = true;
     $("#candidate-color").value = colorFromName(file.name) || detectedColor;
-    $("#candidate-category").value = categoryFromName(file.name);
+    $("#candidate-category").value = categoryFromName(file.name, detectedCategory || "tops");
     applyQuickCandidateInference({ filename: file.name });
     $("#candidate-analysis-hint").textContent = "写真から仮入力しました。違うところだけ修正してください。";
   } catch (error) {
@@ -1143,7 +1228,7 @@ async function restoreItem(id) {
 }
 
 function itemPhotoMarkup(item, alt = true) {
-  if (item.photo) return `<img src="${objectURL(item.photo)}" alt="${alt ? escapeHTML(item.name) : ""}">`;
+  if (item.photo) return `<img src="${displayPhotoURL(item.photo)}" alt="${alt ? escapeHTML(item.name) : ""}">`;
   const fill = colorHex[item.color] || "#ddd7ca";
   return `<svg viewBox="0 0 100 100" role="img" aria-label="${escapeHTML(item.name)}" xmlns="http://www.w3.org/2000/svg"><rect width="100" height="100" fill="${fill.startsWith("#") ? fill : "#b89b83"}"/><path d="M27 28 40 20h20l13 8 12 21-13 8-6-11v38H34V46l-6 11-13-8 12-21Z" fill="rgba(255,255,255,.35)" stroke="rgba(30,30,30,.18)"/></svg>`;
 }
@@ -1406,6 +1491,7 @@ function practicalScore(set, conditions) {
   const avgFormality = wearable.reduce((sum, item) => sum + Number(item.formality), 0) / Math.max(1, wearable.length);
   let score = 100;
   score -= Math.abs(avgWarmth - wantedWarmth) * 14;
+  score -= Math.abs(upperBodyWarmth(set) - wantedWarmth) * 9;
   score -= Math.abs(avgFormality - wantedFormality) * 12;
   score -= wearable.filter((item) => item.season !== "all" && item.season !== wantedSeason).length * 10;
   if (conditions.weather === "rain" && set.some((item) => /撥水|防水/.test(item.notes || ""))) score += 8;
@@ -1523,6 +1609,29 @@ function trendScore(set) {
   return Math.round(clamp(freshAdjustedScore));
 }
 
+function isStructurallyCompleteOutfit(set) {
+  const categories = new Set(set.map((item) => item.category));
+  return categories.has("onepiece") || (categories.has("tops") && categories.has("bottoms"));
+}
+
+function upperBodyWarmth(set) {
+  const base = set.find((item) => item.category === "tops" || item.category === "onepiece");
+  const outer = set.find((item) => item.category === "outer");
+  return Number(base?.warmth || 0) + Number(outer?.warmth || 0) * .55;
+}
+
+function isTemperatureSuitableOutfit(set, conditions) {
+  if (!isStructurallyCompleteOutfit(set)) return false;
+  const hasOuter = set.some((item) => item.category === "outer");
+  const base = set.find((item) => item.category === "tops" || item.category === "onepiece");
+  const baseWarmth = Number(base?.warmth || 0);
+  if (conditions.temperature <= 7 && !hasOuter) return false;
+  if (conditions.temperature <= 14 && !hasOuter && baseWarmth < 4) return false;
+  if (conditions.temperature <= 20 && !hasOuter && baseWarmth < 3) return false;
+  if (conditions.temperature >= 28 && hasOuter && conditions.weather !== "rain") return false;
+  return true;
+}
+
 function generateCandidates(conditions, sourceItems = items) {
   const ready = sourceItems.filter((item) => item.status === "ready" && (!conditions.actualOnly || !item.isSample));
   const group = (category) => ready.filter((item) => item.category === category);
@@ -1537,18 +1646,19 @@ function generateCandidates(conditions, sourceItems = items) {
   };
   const rankedCandidates = [];
   for (const base of bases) {
-    const withOuter = optional(base, "outer", conditions.temperature < 19 || conditions.weather === "rain");
+    const withOuter = optional(base, "outer", conditions.temperature <= 20 || conditions.weather === "rain");
     for (const set of withOuter) {
       const withShoes = optional(set, "shoes", true);
       for (const dressed of withShoes) rankedCandidates.push(...optional(dressed, "accessory", true, true));
     }
   }
-  if (!rankedCandidates.length) return [];
+  const eligibleCandidates = rankedCandidates.filter((set) => isTemperatureSuitableOutfit(set, conditions));
+  if (!eligibleCandidates.length) return [];
 
   const model = buildPreferenceModel(conditions);
   const weights = decisionWeights(conditions.preferenceBalance);
 
-  return rankedCandidates.map((set) => {
+  return eligibleCandidates.map((set) => {
     const components = {
       practical: practicalScore(set, conditions),
       preference: preferenceScore(set, model),
@@ -2011,7 +2121,7 @@ function bindEvents() {
     if (!file) return;
     $("#analysis-hint").textContent = "写真を軽量化し、色を確認しています…";
     try {
-      const { blob, detectedColor } = await compressAndAnalyze(file);
+      const { blob, detectedColor, detectedCategory } = await compressAndAnalyze(file);
       const resolvedColor = colorFromName(file.name) || detectedColor;
       currentPhoto = blob;
       revokePhotoURL(currentPhotoUrl);
@@ -2020,7 +2130,7 @@ function bindEvents() {
       $("#photo-preview").hidden = false;
       $("#photo-placeholder").hidden = true;
       $("#item-color").value = resolvedColor;
-      $("#item-category").value = categoryFromName(file.name);
+      $("#item-category").value = categoryFromName(file.name, detectedCategory || "tops");
       applyQuickItemInference({ filename: file.name });
       $("#analysis-hint").textContent = "写真から仮入力しました。違うところだけ修正してください。";
     } catch (error) {

@@ -1,4 +1,4 @@
-/* 追加意図: 実物のみの候補生成、4方向の選出、理由別の好み学習を回帰確認する。処理日時: 2026-10-01 22:48 JST */
+/* 更新意図: 実物のみ・4方向・理由別学習に加え、20℃の必須レイヤーとコーデ構成を回帰確認する。処理日時: 2026-10-07 14:17 JST */
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
@@ -58,5 +58,24 @@ context.testFeedback = [{
 vm.runInContext("feedback = testFeedback;", context);
 const featureKeys = vm.runInContext("Array.from(buildPreferenceModel().featureWeights.keys())", context);
 assert.deepEqual(Array.from(featureKeys), ["color:red"], "色が苦手という理由は色の特徴だけへ反映してください");
+
+const conditions20 = { ...conditions, temperature: 20 };
+const lightTop = { ...base, id: "light-top", name: "半袖トップス", category: "tops", warmth: 2 };
+const bottom = { ...base, id: "required-bottom", name: "パンツ", category: "bottoms", warmth: 2 };
+const shoe = { ...base, id: "required-shoe", name: "スニーカー", category: "shoes", warmth: 2 };
+const outer = { ...base, id: "required-outer", name: "ライトアウター", category: "outer", warmth: 3 };
+context.conditions20 = conditions20;
+context.lightWardrobe = [lightTop, bottom, shoe];
+context.layeredWardrobe = [lightTop, bottom, shoe, outer];
+assert.equal(vm.runInContext("generateCandidates(conditions20, lightWardrobe).length", context), 0, "20℃で軽いトップスだけの提案を出してはいけません");
+const layeredCandidates = vm.runInContext("generateCandidates(conditions20, layeredWardrobe)", context);
+assert.ok(layeredCandidates.length > 0, "20℃ではライトアウターを含む提案を作ってください");
+assert.ok(layeredCandidates.every((outfit) => outfit.items.some((item) => item.category === "outer")), "20℃の軽いトップスにはアウターを必須にしてください");
+assert.ok(layeredCandidates.every((outfit) => {
+  const categories = new Set(Array.from(outfit.items, (item) => item.category));
+  return categories.has("onepiece") || (categories.has("tops") && categories.has("bottoms"));
+}), "ボトムスとアウターだけの不完全なコーデを出してはいけません");
+context.incompleteSet = [bottom, outer];
+assert.equal(vm.runInContext("isTemperatureSuitableOutfit(incompleteSet, conditions20)", context), false, "アウターはトップスの代わりにしてはいけません");
 
 console.log("stylist real-mode tests passed");

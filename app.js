@@ -1,4 +1,4 @@
-/* 更新意図: 写真からのボトムス判定、気温別の必須レイヤー、編集時の画像・自動名保持を強化。処理日時: 2026-10-07 14:32 JST */
+/* 更新意図: 写真だけでは誤認しやすい服の形・丈・袖丈・厚み・重ね着役割を分離し、少ない確認操作で推薦精度を上げる。処理日時: 2026-10-07 22:07 JST */
 const DB_NAME = "kinari-closet";
 const DB_VERSION = 2;
 const SETTINGS_KEY = "kinari-stylist-settings";
@@ -37,11 +37,20 @@ const labels = {
   mood: { relaxed: "リラックス", clean: "きちんと", minimal: "シンプル", adventure: "少し冒険" },
   pattern: { solid: "無地", stripe: "ストライプ", check: "チェック", floral: "花柄", graphic: "柄・グラフィック", other: "その他" },
   material: { cotton: "コットン", knit: "ニット", denim: "デニム", linen: "リネン", wool: "ウール", leather: "レザー", synthetic: "化繊", other: "その他" },
-  silhouette: { slim: "細身", regular: "標準", relaxed: "ゆったり", wide: "ワイド", short: "短丈", long: "ロング" },
+  silhouette: { skinny: "スキニー", slim: "細身", regular: "標準", relaxed: "ゆったり", oversized: "オーバーサイズ", straight: "ストレート", tapered: "テーパード", wide: "ワイド", flare: "フレア", short: "短丈", long: "ロング" },
+  garmentLength: { cropped: "短丈", regular: "標準丈", long: "ロング丈" },
+  sleeveLength: { unknown: "不明", sleeveless: "ノースリーブ", short: "半袖", threeQuarter: "七分袖", long: "長袖" },
+  thickness: { light: "薄手", medium: "普通", heavy: "厚手" },
+  layerRole: { inner: "インナー向き", standalone: "1枚で着る", layer: "羽織りにも使う", outer: "アウター", none: "対象外" },
   style: { casual: "カジュアル", clean: "きれいめ", minimal: "ミニマル", classic: "クラシック", natural: "ナチュラル", sporty: "スポーティ", trendy: "トレンド" },
 };
 
 const colorHex = { white: "#f6f5ef", black: "#282a28", gray: "#92958f", navy: "#263b55", blue: "#6585a3", beige: "#c8b797", brown: "#765846", green: "#647a61", red: "#a8534e", yellow: "#d3b34c", pink: "#c58f99", purple: "#7b6886", multi: "linear-gradient(90deg,#b38b67,#6e8290,#8a6b77)" };
+
+const SILHOUETTE_OPTIONS = Object.freeze({
+  bottoms: ["skinny", "slim", "straight", "tapered", "wide", "flare"],
+  default: ["slim", "regular", "relaxed", "oversized"],
+});
 
 const DEFAULT_TREND_PROFILE = {
   season: "2026 秋冬",
@@ -310,6 +319,47 @@ function clamp(value, min = 0, max = 100) {
   return Math.max(min, Math.min(max, value));
 }
 
+function silhouetteChoices(category) {
+  return category === "bottoms" ? SILHOUETTE_OPTIONS.bottoms : SILHOUETTE_OPTIONS.default;
+}
+
+function optionMarkup(values, selected, dictionary) {
+  return values.map((value) => `<option value="${value}"${value === selected ? " selected" : ""}>${dictionary[value]}</option>`).join("");
+}
+
+function configureProfileFields(prefix, category, profile = {}) {
+  const panel = $(`#${prefix}-profile-confirmation`);
+  if (!panel) return;
+  const wearable = !["shoes", "accessory"].includes(category);
+  panel.hidden = !wearable;
+  const shape = $(`#${prefix}-silhouette`);
+  if (shape) {
+    const choices = silhouetteChoices(category);
+    const selected = choices.includes(profile.silhouette) ? profile.silhouette : (category === "bottoms" ? "straight" : "regular");
+    shape.innerHTML = optionMarkup(choices, selected, labels.silhouette);
+    const title = panel.querySelector(`[data-profile-label="silhouette"]`);
+    if (title) title.textContent = category === "bottoms" ? "パンツの形" : "ゆとり";
+  }
+  const applicability = {
+    garmentLength: wearable,
+    sleeveLength: ["tops", "onepiece", "outer"].includes(category),
+    thickness: wearable,
+    layerRole: ["tops", "outer"].includes(category),
+  };
+  Object.entries(applicability).forEach(([field, visible]) => {
+    const wrapper = panel.querySelector(`[data-profile-field="${field}"]`);
+    if (wrapper) wrapper.hidden = !visible;
+  });
+  if ($(`#${prefix}-garment-length`) && profile.garmentLength) $(`#${prefix}-garment-length`).value = profile.garmentLength;
+  if ($(`#${prefix}-sleeve-length`) && profile.sleeveLength) $(`#${prefix}-sleeve-length`).value = profile.sleeveLength;
+  if ($(`#${prefix}-thickness`) && profile.thickness) $(`#${prefix}-thickness`).value = profile.thickness;
+  if ($(`#${prefix}-layer-role`)) {
+    const layerRole = category === "outer" ? "outer" : (profile.layerRole || "standalone");
+    $(`#${prefix}-layer-role`).value = layerRole;
+    $(`#${prefix}-layer-role`).disabled = category === "outer";
+  }
+}
+
 function getItemProfile(item) {
   const text = `${item.name || ""} ${item.notes || ""}`.toLowerCase();
   const inferredPattern = /ストライプ|stripe/.test(text) ? "stripe"
@@ -322,11 +372,30 @@ function getItemProfile(item) {
         : /ウール|マフラー|wool/.test(text) ? "wool"
           : /レザー|ブーツ|ローファー|ベルト|leather/.test(text) ? "leather"
             : ["tops", "bottoms", "onepiece"].includes(item.category) ? "cotton" : "synthetic";
-  const inferredSilhouette = /ワイド|wide/.test(text) ? "wide"
+  const bottomSilhouette = /スキニー|skinny/.test(text) ? "skinny"
+    : /テーパード|tapered/.test(text) ? "tapered"
+      : /ワイド|wide/.test(text) ? "wide"
+        : /フレア|ブーツカット|flare/.test(text) ? "flare"
+          : /細身|スリム|slim/.test(text) ? "slim" : "straight";
+  const upperSilhouette = /オーバーサイズ|ビッグシルエット|oversized/.test(text) ? "oversized"
     : /スウェット|フィールド|ゆったり|relaxed/.test(text) ? "relaxed"
-      : /短丈|cropped/.test(text) ? "short"
-        : /ワンピース|コート|ロング|long/.test(text) ? "long"
-          : /細身|テーパード|slim/.test(text) ? "slim" : "regular";
+      : /細身|タイト|slim/.test(text) ? "slim" : "regular";
+  const allowedSilhouettes = silhouetteChoices(item.category);
+  const storedSilhouette = allowedSilhouettes.includes(item.silhouette) ? item.silhouette : null;
+  const inferredSilhouette = item.category === "bottoms" ? bottomSilhouette : upperSilhouette;
+  const inferredLength = /短丈|クロップド|cropped/.test(text) || item.silhouette === "short" ? "cropped"
+    : /ロング|マキシ|long/.test(text) || item.silhouette === "long" ? "long" : "regular";
+  const inferredSleeveLength = /ノースリーブ|タンクトップ|sleeveless/.test(text) ? "sleeveless"
+    : /半袖|Tシャツ|Ｔシャツ|ポロシャツ|short.?sleeve/.test(text) ? "short"
+      : /七分袖|three.?quarter/.test(text) ? "threeQuarter"
+        : ["tops", "onepiece", "outer"].includes(item.category) ? (Number(item.warmth) <= 1 ? "short" : "long") : "unknown";
+  const inferredThickness = /薄手|シアー|ライトウェイト|lightweight/.test(text) ? "light"
+    : /厚手|ヘビーウェイト|中綿|ダウン|heavyweight/.test(text) ? "heavy"
+      : Number(item.warmth) <= 2 ? "light" : Number(item.warmth) >= 4 ? "heavy" : "medium";
+  const inferredLayerRole = item.category === "outer" ? "outer"
+    : item.category === "tops" && /オーバーシャツ|シャツジャケット|羽織|overshirt/.test(text) ? "layer"
+      : item.category === "tops" && /インナー|肌着|タンクトップ/.test(text) ? "inner"
+        : ["tops", "onepiece"].includes(item.category) ? "standalone" : "none";
   const inferredStyle = /ランニング|スニーカー|キャップ|sport/.test(text) ? "sporty"
     : /ワイド|テラコッタ|trend/.test(text) ? "trendy"
       : Number(item.formality) >= 4 ? "classic"
@@ -338,7 +407,11 @@ function getItemProfile(item) {
   return {
     pattern: item.pattern || inferredPattern,
     material: item.material || inferredMaterial,
-    silhouette: item.silhouette || inferredSilhouette,
+    silhouette: storedSilhouette || inferredSilhouette,
+    garmentLength: item.garmentLength || inferredLength,
+    sleeveLength: item.sleeveLength || inferredSleeveLength,
+    thickness: item.thickness || inferredThickness,
+    layerRole: item.layerRole || inferredLayerRole,
     style: item.style || inferredStyle,
     statement: Number(item.statement || inferredStatement),
   };
@@ -351,6 +424,9 @@ function profileKeys(item) {
     `pattern:${profile.pattern}`,
     `material:${profile.material}`,
     `silhouette:${profile.silhouette}`,
+    `garmentLength:${profile.garmentLength}`,
+    `sleeveLength:${profile.sleeveLength}`,
+    `thickness:${profile.thickness}`,
     `style:${profile.style}`,
   ];
 }
@@ -359,11 +435,11 @@ function feedbackProfileKeys(item, reason = null) {
   const keys = profileKeys(item);
   const kindsByReason = {
     color: new Set(["color"]),
-    silhouette: new Set(["silhouette"]),
+    silhouette: new Set(["silhouette", "garmentLength"]),
     style: new Set(["style"]),
     tooFormal: new Set(["style"]),
     tooCasual: new Set(["style"]),
-    comfortable: new Set(["material", "silhouette"]),
+    comfortable: new Set(["material", "silhouette", "thickness"]),
     combination: new Set(),
   };
   const allowedKinds = kindsByReason[reason];
@@ -737,12 +813,16 @@ function updateItemAnalysisSummary() {
     pattern: $("#item-pattern").value,
     material: $("#item-material").value,
     silhouette: $("#item-silhouette").value,
+    garmentLength: $("#item-garment-length").value,
+    sleeveLength: $("#item-sleeve-length").value,
+    thickness: $("#item-thickness").value,
+    layerRole: $("#item-layer-role").value,
     style: $("#item-style").value,
     statement: Number($("#item-statement").value),
   });
   $("#item-analysis-summary").innerHTML = `
     <span aria-hidden="true">✦</span>
-    <p><strong>${labels.color[color]}・${labels.category[category]}・${labels.style[profile.style]}</strong><small>${labels.material[profile.material]}／${labels.silhouette[profile.silhouette]}。違う場合だけ詳細設定から修正できます</small></p>`;
+    <p><strong>${labels.color[color]}・${labels.category[category]}・${labels.style[profile.style]}</strong><small>${labels.material[profile.material]}／${labels.silhouette[profile.silhouette]}／${labels.thickness[profile.thickness]}。写真だけで曖昧な特徴は下で確認できます</small></p>`;
 }
 
 function applyQuickItemInference({ updateName = true, filename = "" } = {}) {
@@ -769,11 +849,29 @@ function applyQuickItemInference({ updateName = true, filename = "" } = {}) {
       color,
       formality: Number($("#item-formality").value),
     });
+    configureProfileFields("item", category, inferred);
     $("#item-pattern").value = inferred.pattern;
     $("#item-material").value = materialFromName(filename) || (category === "shoes" ? "leather" : inferred.material);
     $("#item-silhouette").value = inferred.silhouette;
+    $("#item-garment-length").value = inferred.garmentLength;
+    $("#item-sleeve-length").value = inferred.sleeveLength;
+    $("#item-thickness").value = inferred.thickness;
+    $("#item-layer-role").value = category === "outer" ? "outer" : inferred.layerRole;
     $("#item-style").value = inferred.style;
     $("#item-statement").value = inferred.statement;
+  } else {
+    const currentProfile = getItemProfile({
+      name: nameInput.value,
+      category,
+      color,
+      warmth: Number($("#item-warmth").value),
+      silhouette: $("#item-silhouette").value,
+      garmentLength: $("#item-garment-length").value,
+      sleeveLength: $("#item-sleeve-length").value,
+      thickness: $("#item-thickness").value,
+      layerRole: ["tops", "outer"].includes(category) ? $("#item-layer-role").value : undefined,
+    });
+    configureProfileFields("item", category, currentProfile);
   }
   updateItemAnalysisSummary();
 }
@@ -792,6 +890,7 @@ function resetItemForm() {
   currentPhoto = null;
   currentPhotoUrl = null;
   lastSuggestedItemName = "";
+  configureProfileFields("item", "tops", getItemProfile({ category: "tops", warmth: 2 }));
 }
 
 function openItemDialog(item = null) {
@@ -811,7 +910,12 @@ function openItemDialog(item = null) {
     $("#item-formality").value = item.formality;
     $("#item-pattern").value = profile.pattern;
     $("#item-material").value = profile.material;
+    configureProfileFields("item", item.category, profile);
     $("#item-silhouette").value = profile.silhouette;
+    $("#item-garment-length").value = profile.garmentLength;
+    $("#item-sleeve-length").value = profile.sleeveLength;
+    $("#item-thickness").value = profile.thickness;
+    $("#item-layer-role").value = profile.layerRole;
     $("#item-style").value = profile.style;
     $("#item-statement").value = profile.statement;
     $("#item-status").value = item.status === "archived" ? "ready" : item.status;
@@ -850,6 +954,9 @@ async function saveItem(event) {
       name: $("#item-name").value.trim(), category: $("#item-category").value, color: $("#item-color").value,
       season: $("#item-season").value, warmth: Number($("#item-warmth").value), formality: Number($("#item-formality").value),
       pattern: $("#item-pattern").value, material: $("#item-material").value, silhouette: $("#item-silhouette").value,
+      garmentLength: $("#item-garment-length").value, sleeveLength: $("#item-sleeve-length").value,
+      thickness: $("#item-thickness").value, layerRole: $("#item-layer-role").value,
+      attributeSource: "user_confirmed", attributeConfidence: 100,
       style: $("#item-style").value, statement: Number($("#item-statement").value),
       status: existing?.status === "archived" ? "archived" : $("#item-status").value,
       notes: $("#item-notes").value.trim(), photo: currentPhoto ?? existing?.photo ?? null,
@@ -876,7 +983,7 @@ function candidateDefaults(category, color, name, filename = "") {
     outer: ["autumn", 4, 3], shoes: ["all", 2, 2], accessory: ["all", 2, 2],
   };
   const [season, warmth, formality] = categoryDefaults[category] || ["all", 3, 3];
-  const profile = getItemProfile({ name, category, color, formality });
+  const profile = getItemProfile({ name, notes: filename, category, color, formality, warmth });
   return {
     season,
     warmth,
@@ -884,6 +991,12 @@ function candidateDefaults(category, color, name, filename = "") {
     pattern: profile.pattern,
     material: materialFromName(filename) || (category === "shoes" ? "leather" : profile.material),
     silhouette: profile.silhouette,
+    garmentLength: profile.garmentLength,
+    sleeveLength: profile.sleeveLength,
+    thickness: profile.thickness,
+    layerRole: profile.layerRole,
+    attributeSource: "assisted",
+    attributeConfidence: 60,
     style: profile.style,
     statement: profile.statement,
   };
@@ -902,6 +1015,12 @@ function batchOptions(values, selected) {
   ).join("");
 }
 
+function batchSilhouetteOptions(category, selected) {
+  const choices = silhouetteChoices(category);
+  const resolved = choices.includes(selected) ? selected : (category === "bottoms" ? "straight" : "regular");
+  return optionMarkup(choices, resolved, labels.silhouette);
+}
+
 function renderBatchRegister() {
   const list = $("#batch-register-list");
   const progress = $("#batch-progress");
@@ -916,6 +1035,7 @@ function renderBatchRegister() {
         <label class="field full"><span>名前</span><input required maxlength="120" data-batch-field="name" value="${escapeHTML(draft.name)}"></label>
         <label class="field"><span>カテゴリ</span><select data-batch-field="category">${batchOptions(labels.category, draft.category)}</select></label>
         <label class="field"><span>色</span><select data-batch-field="color">${batchOptions(labels.color, draft.color)}</select></label>
+        ${!["shoes", "accessory"].includes(draft.category) ? `<label class="field"><span>${draft.category === "bottoms" ? "パンツの形" : "ゆとり"}</span><select data-batch-field="silhouette">${batchSilhouetteOptions(draft.category, draft.silhouette)}</select></label>` : ""}
         <small title="${escapeHTML(draft.filename)}">${escapeHTML(draft.filename)}</small>
       </div>
       <button class="batch-remove-button" type="button" data-remove-batch-item="${draft.id}" aria-label="${escapeHTML(draft.name)}を一括登録から除外">除外</button>
@@ -1050,7 +1170,14 @@ function updateCandidateAnalysisSummary() {
   const category = $("#candidate-category").value;
   const color = $("#candidate-color").value;
   const name = $("#candidate-name").value.trim() || suggestedCandidateName();
-  const profile = candidateDefaults(category, color, name);
+  const profile = {
+    ...candidateDefaults(category, color, name),
+    silhouette: $("#candidate-silhouette")?.value,
+    garmentLength: $("#candidate-garment-length")?.value,
+    sleeveLength: $("#candidate-sleeve-length")?.value,
+    thickness: $("#candidate-thickness")?.value,
+    layerRole: $("#candidate-layer-role")?.value,
+  };
   $("#candidate-analysis-summary").innerHTML = `
     <span aria-hidden="true">✦</span>
     <p><strong>${labels.color[color]}・${labels.category[category]}・${labels.style[profile.style]}</strong><small>この候補を必ず含む、相性のよいコーデを最大10案まで探します</small></p>`;
@@ -1063,6 +1190,9 @@ function applyQuickCandidateInference({ filename = "", updateName = true } = {})
     nameInput.value = nextName;
     lastSuggestedCandidateName = nextName;
   }
+  const category = $("#candidate-category").value;
+  const color = $("#candidate-color").value;
+  configureProfileFields("candidate", category, candidateDefaults(category, color, nameInput.value || nextName, filename));
   updateCandidateAnalysisSummary();
 }
 
@@ -1076,6 +1206,7 @@ function resetCandidateForm() {
   currentCandidatePhoto = null;
   currentCandidatePhotoUrl = null;
   lastSuggestedCandidateName = "";
+  configureProfileFields("candidate", "tops", candidateDefaults("tops", "white", ""));
 }
 
 function openCandidateDialog() {
@@ -1128,6 +1259,13 @@ async function saveCandidate(event) {
       category,
       color,
       ...candidateDefaults(category, color, name),
+      silhouette: $("#candidate-silhouette").value,
+      garmentLength: $("#candidate-garment-length").value,
+      sleeveLength: $("#candidate-sleeve-length").value,
+      thickness: $("#candidate-thickness").value,
+      layerRole: $("#candidate-layer-role").value,
+      attributeSource: "user_confirmed",
+      attributeConfidence: 100,
       photo: currentCandidatePhoto,
       price: Number($("#candidate-price").value) || null,
       store: $("#candidate-store").value.trim(),
@@ -1185,6 +1323,12 @@ async function purchaseCandidate(id) {
     pattern: candidate.pattern,
     material: candidate.material,
     silhouette: candidate.silhouette,
+    garmentLength: candidate.garmentLength,
+    sleeveLength: candidate.sleeveLength,
+    thickness: candidate.thickness,
+    layerRole: candidate.layerRole,
+    attributeSource: candidate.attributeSource || "user_confirmed",
+    attributeConfidence: Number(candidate.attributeConfidence || 100),
     style: candidate.style,
     statement: candidate.statement,
     photo: candidate.photo,
@@ -1312,13 +1456,21 @@ async function generateLookPreview() {
   $("#look-message").textContent = "";
 
   try {
-    const generatedItems = await Promise.all(pendingLook.items.map(async (item) => ({
-      id: item.id,
-      name: item.name,
-      category: item.category,
-      color: labels.color[item.color] || item.color,
-      imageDataUrl: await itemPhotoDataUrl(item),
-    })));
+    const generatedItems = await Promise.all(pendingLook.items.map(async (item) => {
+      const profile = getItemProfile(item);
+      return {
+        id: item.id,
+        name: item.name,
+        category: item.category,
+        color: labels.color[item.color] || item.color,
+        silhouette: labels.silhouette[profile.silhouette],
+        garmentLength: labels.garmentLength[profile.garmentLength],
+        sleeveLength: labels.sleeveLength[profile.sleeveLength],
+        thickness: labels.thickness[profile.thickness],
+        layerRole: labels.layerRole[profile.layerRole],
+        imageDataUrl: await itemPhotoDataUrl(item),
+      };
+    }));
     const result = await window.KinariCloud.generateLook({
       items: generatedItems,
       conditions: pendingLook.conditions,
@@ -1361,7 +1513,7 @@ function renderCloset() {
   const status = $("#status-filter").value;
   const filtered = items.filter((item) => {
     const profile = getItemProfile(item);
-    const text = `${item.name} ${labels.color[item.color]} ${labels.pattern[profile.pattern]} ${labels.material[profile.material]} ${labels.silhouette[profile.silhouette]} ${labels.style[profile.style]} ${item.notes || ""}`.toLowerCase();
+    const text = `${item.name} ${labels.color[item.color]} ${labels.pattern[profile.pattern]} ${labels.material[profile.material]} ${labels.silhouette[profile.silhouette]} ${labels.garmentLength[profile.garmentLength]} ${labels.sleeveLength[profile.sleeveLength]} ${labels.thickness[profile.thickness]} ${labels.style[profile.style]} ${item.notes || ""}`.toLowerCase();
     return (!search || text.includes(search)) && (category === "all" || item.category === category) && (status === "all" || item.status === status);
   }).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 
@@ -1373,7 +1525,7 @@ function renderCloset() {
       <div class="card-body">
         <h3>${escapeHTML(item.name)}</h3>
         <p class="card-meta"><span class="color-dot" style="background:${colorHex[item.color]}"></span>${labels.color[item.color]} ・ ${labels.category[item.category]} ・ ${labels.season[item.season]}</p>
-        <div class="card-tags"><span>${labels.style[profile.style]}</span><span>${labels.silhouette[profile.silhouette]}</span><span>${labels.pattern[profile.pattern]}</span></div>
+        <div class="card-tags"><span>${labels.style[profile.style]}</span><span>${labels.silhouette[profile.silhouette]}</span><span>${labels.garmentLength[profile.garmentLength]}</span><span>${labels.pattern[profile.pattern]}</span></div>
         <div class="card-actions">
           <button data-edit-item="${item.id}">情報を編集</button>
           ${item.status !== "archived" ? `<button data-archive-item="${item.id}">アーカイブ</button>` : `<button data-restore-item="${item.id}">元に戻す</button>`}
@@ -1384,7 +1536,9 @@ function renderCloset() {
 }
 
 function candidateMeta(candidate) {
+  const profile = getItemProfile(candidate);
   const details = [labels.color[candidate.color], labels.category[candidate.category]];
+  if (!["shoes", "accessory"].includes(candidate.category)) details.push(labels.silhouette[profile.silhouette]);
   if (candidate.price) details.push(`¥${candidate.price.toLocaleString("ja-JP")}`);
   if (candidate.store) details.push(candidate.store);
   return details.map(escapeHTML).join(" ・ ");
@@ -1500,6 +1654,10 @@ function practicalScore(set, conditions) {
   if (conditions.weather === "rain" && set.some((item) => /雨.{0,4}(避け|苦手)|濡れ/.test(item.notes || ""))) score -= 18;
   if (conditions.occasion === "active" && set.some((item) => item.category === "shoes" && Number(item.formality) <= 2)) score += 8;
   if (conditions.avoidRecent && set.some((item) => item.lastWornAt && new Date(item.lastWornAt).getTime() > recentLimit)) score -= 18;
+  const base = set.find((item) => item.category === "tops" || item.category === "onepiece");
+  const baseProfile = base ? getItemProfile(base) : null;
+  if (conditions.temperature >= 28 && baseProfile?.thickness === "heavy") score -= 24;
+  if (conditions.temperature <= 14 && baseProfile?.thickness === "light" && !set.some((item) => item.category === "outer")) score -= 24;
   return Math.round(clamp(score));
 }
 
@@ -1528,11 +1686,22 @@ function harmonyScore(set, conditions) {
   const top = set.find((item) => item.category === "tops");
   const bottom = set.find((item) => item.category === "bottoms");
   if (top && bottom) {
-    const topShape = getItemProfile(top).silhouette;
-    const bottomShape = getItemProfile(bottom).silhouette;
-    if (["regular", "slim", "short"].includes(topShape) && bottomShape === "wide") score += 7;
-    if (["relaxed", "wide"].includes(topShape) && ["regular", "slim"].includes(bottomShape)) score += 7;
-    if (["relaxed", "wide"].includes(topShape) && bottomShape === "wide") score -= 5;
+    const topProfile = getItemProfile(top);
+    const bottomProfile = getItemProfile(bottom);
+    if (["slim", "regular"].includes(topProfile.silhouette) && ["wide", "flare"].includes(bottomProfile.silhouette)) score += 9;
+    if (["relaxed", "oversized"].includes(topProfile.silhouette) && ["skinny", "slim", "straight", "tapered"].includes(bottomProfile.silhouette)) score += 7;
+    if (["relaxed", "oversized"].includes(topProfile.silhouette) && ["wide", "flare"].includes(bottomProfile.silhouette)) {
+      score += topProfile.garmentLength === "cropped" ? 4 : -7;
+    }
+    if (topProfile.garmentLength === "long" && ["wide", "flare"].includes(bottomProfile.silhouette)) score -= 5;
+    if (topProfile.layerRole === "inner" && !set.some((item) => item.category === "outer")) score -= 14;
+  }
+  const outer = set.find((item) => item.category === "outer");
+  if (top && outer) {
+    const topProfile = getItemProfile(top);
+    const outerProfile = getItemProfile(outer);
+    if (outerProfile.silhouette === "slim" && ["relaxed", "oversized"].includes(topProfile.silhouette)) score -= 10;
+    if (["relaxed", "oversized"].includes(outerProfile.silhouette) && ["regular", "relaxed"].includes(topProfile.silhouette)) score += 4;
   }
   return Math.round(clamp(score));
 }
@@ -1627,9 +1796,13 @@ function isTemperatureSuitableOutfit(set, conditions) {
   const hasOuter = set.some((item) => item.category === "outer");
   const base = set.find((item) => item.category === "tops" || item.category === "onepiece");
   const baseWarmth = Number(base?.warmth || 0);
+  const baseProfile = base ? getItemProfile(base) : null;
   if (conditions.temperature <= 7 && !hasOuter) return false;
   if (conditions.temperature <= 14 && !hasOuter && baseWarmth < 4) return false;
   if (conditions.temperature <= 20 && !hasOuter && baseWarmth < 3) return false;
+  if (conditions.temperature <= 20 && !hasOuter && ["sleeveless", "short"].includes(baseProfile?.sleeveLength)) return false;
+  if (conditions.temperature <= 14 && !hasOuter && baseProfile?.thickness === "light") return false;
+  if (conditions.temperature >= 28 && baseProfile?.thickness === "heavy") return false;
   if (conditions.temperature >= 28 && hasOuter && conditions.weather !== "rain") return false;
   return true;
 }
@@ -1706,6 +1879,10 @@ function aiCandidatePayload(candidate) {
         pattern: profile.pattern,
         material: profile.material,
         silhouette: profile.silhouette,
+        garmentLength: profile.garmentLength,
+        sleeveLength: profile.sleeveLength,
+        thickness: profile.thickness,
+        layerRole: profile.layerRole,
         style: profile.style,
       };
     }),
@@ -2089,6 +2266,9 @@ function bindEvents() {
   ["#candidate-category", "#candidate-color"].forEach((selector) => {
     $(selector).addEventListener("change", () => applyQuickCandidateInference());
   });
+  ["#candidate-silhouette", "#candidate-garment-length", "#candidate-sleeve-length", "#candidate-thickness", "#candidate-layer-role"].forEach((selector) => {
+    $(selector).addEventListener("change", updateCandidateAnalysisSummary);
+  });
   $("#candidate-name").addEventListener("input", () => {
     if ($("#candidate-name").value !== lastSuggestedCandidateName) lastSuggestedCandidateName = "";
     updateCandidateAnalysisSummary();
@@ -2146,7 +2326,7 @@ function bindEvents() {
   $("#item-name").addEventListener("input", () => {
     if ($("#item-name").value !== lastSuggestedItemName) lastSuggestedItemName = "";
   });
-  ["#item-season", "#item-warmth", "#item-formality", "#item-pattern", "#item-material", "#item-silhouette", "#item-style", "#item-statement"].forEach((selector) => {
+  ["#item-season", "#item-warmth", "#item-formality", "#item-pattern", "#item-material", "#item-silhouette", "#item-garment-length", "#item-sleeve-length", "#item-thickness", "#item-layer-role", "#item-style", "#item-statement"].forEach((selector) => {
     $(selector).addEventListener("change", updateItemAnalysisSummary);
   });
   $("#item-form").addEventListener("submit", saveItem);

@@ -34,6 +34,8 @@
 
 > 更新意図: 既存ルールを常時利用しつつ、API設定時はJevで日常的に再順位付けし、評価履歴が蓄積した後の低確信度判断やプロフィール更新をClaudeへ段階的に委ねる構成を追加。処理日時: 2026-10-03 19:08 JST
 
+> 更新意図: 写真だけでは誤認しやすい服の形・丈・袖丈・厚み・重ね着役割を分離し、登録時の短い確認と推薦ルール・AI判定・クラウド同期へ反映。処理日時: 2026-10-07 22:07 JST
+
 > 更新意図: 1件登録を残したまま、複数写真を端末内で仮判定・確認し、最大20点までスマホでも一括登録できるフローを追加。処理日時: 2026-10-07 13:31 JST
 
 > 更新意図: 一括登録で写真形状からボトムスを判定し、20℃以下の軽いトップスにはアウターを必須化。カテゴリ編集後も画像・同期情報・自動生成名の整合性を保持。処理日時: 2026-10-07 14:32 JST
@@ -98,7 +100,7 @@ python3 -m http.server 4173
 ## Supabaseの初期設定
 
 1. Supabaseで無料プロジェクトを1つ作成します。
-2. SQL Editorで`supabase/migrations/202609290001_initial_schema.sql`を実行し、続けて`supabase/migrations/202610010001_actual_only_setting.sql`を実行します。
+2. SQL Editorで`supabase/migrations/202609290001_initial_schema.sql`を実行し、続けて`supabase/migrations/202610010001_actual_only_setting.sql`と`supabase/migrations/202610070001_garment_profiles.sql`を実行します。
 3. Project SettingsのAPI画面からProject URLと公開用Publishable key（旧形式ではanon key）を確認します。
 4. `supabase-config.js`へ次のように設定します。プロパティ名は互換性のため`anonKey`ですが、Publishable keyもそのまま使えます。
 
@@ -112,6 +114,10 @@ window.KINARI_SUPABASE_CONFIG = Object.freeze({
 5. AuthenticationのURL Configurationで、公開URL`https://kuraland.github.io/kinari-closet/`をSite URLとRedirect URLへ追加します。
 
 > 適用記録: `202610010001_actual_only_setting.sql`は、実物のみ設定の端末間同期に備えて本番Supabaseへ適用済みです。`actual_only`が`boolean`、初期値`true`、NOT NULLであることを確認しました。処理日時: 2026-10-02 22:20 JST
+
+`202610070001_garment_profiles.sql`は、既存の服を削除せず、旧シルエットと暖かさから新しい特徴を仮補完します。次に登録・編集した際は画面で確認した値が優先されます。
+
+> 適用記録: `202610070001_garment_profiles.sql`を本番Supabaseへ適用し、6列すべて既定値あり・NOT NULLであることを確認しました。処理日時: 2026-10-07 22:32 JST
 
 ログイン後の同期は最終更新日時によるLast Write Winsです。端末にしかない服はクラウドへ追加し、クラウドにしかない服は端末へ復元します。サンプル30点は各端末に同梱済みなので同期対象外です。アーカイブを削除の代わりに使い、別端末から意図せず復活することを防ぎます。
 

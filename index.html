@@ -15,10 +15,10 @@
       href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Noto+Sans+JP:wght@400;500;600;700&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="styles.css?v=16" />
+    <link rel="stylesheet" href="styles.css?v=17" />
   </head>
   <body>
-    <!-- 更新意図: 写真形状によるボトムス判定、気温別のコーデ必須構成、編集時の画像・自動名保持を強化。処理日時: 2026-10-07 14:32 JST -->
+    <!-- 更新意図: 服の形・丈・袖丈・厚み・重ね着役割を分離し、カテゴリ別の短い確認で推薦精度を上げる。処理日時: 2026-10-07 22:07 JST -->
     <div class="app-shell">
       <aside class="sidebar" aria-label="メインナビゲーション">
         <a class="brand" href="#home" aria-label="KINARI ホーム">
@@ -342,6 +342,16 @@
               <span aria-hidden="true">✦</span>
               <p><strong>写真を選ぶと仮判定します</strong><small>品質基準を満たす組み合わせだけを最大10案まで表示します</small></p>
             </div>
+            <section class="profile-confirmation" id="candidate-profile-confirmation" hidden>
+              <div class="profile-confirmation-heading"><strong>形だけ確認</strong><span>ここが合うと、手持ち服との相性判定がより正確になります</span></div>
+              <div class="profile-confirmation-grid">
+                <label class="field" data-profile-field="silhouette"><span data-profile-label="silhouette">ゆとり</span><select id="candidate-silhouette"></select></label>
+                <label class="field" data-profile-field="garmentLength"><span>丈</span><select id="candidate-garment-length"><option value="cropped">短丈</option><option value="regular" selected>標準丈</option><option value="long">ロング丈</option></select></label>
+                <label class="field" data-profile-field="sleeveLength"><span>袖丈</span><select id="candidate-sleeve-length"><option value="sleeveless">ノースリーブ</option><option value="short">半袖</option><option value="threeQuarter">七分袖</option><option value="long" selected>長袖</option></select></label>
+                <label class="field" data-profile-field="thickness"><span>生地の厚み</span><select id="candidate-thickness"><option value="light">薄手</option><option value="medium" selected>普通</option><option value="heavy">厚手</option></select></label>
+                <label class="field" data-profile-field="layerRole"><span>着方</span><select id="candidate-layer-role"><option value="inner">インナー向き</option><option value="standalone" selected>1枚で着る</option><option value="layer">羽織りにも使う</option><option value="outer">アウター</option></select></label>
+              </div>
+            </section>
           </div>
         </div>
 
@@ -403,6 +413,17 @@
               <p><strong>写真を選ぶと仮判定します</strong><small>違うところだけ後から直せます</small></p>
             </div>
 
+            <section class="profile-confirmation" id="item-profile-confirmation">
+              <div class="profile-confirmation-heading"><strong>提案に効く特徴を確認</strong><span>写真では迷いやすい項目だけです。合っていればそのままで大丈夫です</span></div>
+              <div class="profile-confirmation-grid">
+                <label class="field" data-profile-field="silhouette"><span data-profile-label="silhouette">ゆとり</span><select id="item-silhouette"></select></label>
+                <label class="field" data-profile-field="garmentLength"><span>丈</span><select id="item-garment-length"><option value="cropped">短丈</option><option value="regular" selected>標準丈</option><option value="long">ロング丈</option></select></label>
+                <label class="field" data-profile-field="sleeveLength"><span>袖丈</span><select id="item-sleeve-length"><option value="sleeveless">ノースリーブ</option><option value="short">半袖</option><option value="threeQuarter">七分袖</option><option value="long" selected>長袖</option></select></label>
+                <label class="field" data-profile-field="thickness"><span>生地の厚み</span><select id="item-thickness"><option value="light">薄手</option><option value="medium" selected>普通</option><option value="heavy">厚手</option></select></label>
+                <label class="field" data-profile-field="layerRole"><span>着方</span><select id="item-layer-role"><option value="inner">インナー向き</option><option value="standalone" selected>1枚で着る</option><option value="layer">羽織りにも使う</option><option value="outer">アウター</option></select></label>
+              </div>
+            </section>
+
             <details class="advanced-fields" id="item-advanced">
               <summary><span>詳細設定</span><small>季節・素材などを修正</small></summary>
               <div class="fields-grid advanced-grid">
@@ -426,10 +447,6 @@
                   <option value="cotton">コットン</option><option value="knit">ニット</option><option value="denim">デニム</option>
                   <option value="linen">リネン</option><option value="wool">ウール</option><option value="leather">レザー</option>
                   <option value="synthetic">化繊</option><option value="other">その他</option>
-                </select></label>
-                <label class="field"><span>シルエット</span><select id="item-silhouette">
-                  <option value="slim">細身</option><option value="regular" selected>標準</option><option value="relaxed">ゆったり</option>
-                  <option value="wide">ワイド</option><option value="short">短丈</option><option value="long">ロング</option>
                 </select></label>
                 <label class="field"><span>テイスト</span><select id="item-style">
                   <option value="casual">カジュアル</option><option value="clean" selected>きれいめ</option><option value="minimal">ミニマル</option>
@@ -565,7 +582,7 @@
 
     <div class="toast" id="toast" role="status"></div>
     <script src="supabase-config.js?v=1"></script>
-    <script src="cloud-sync.js?v=4"></script>
-    <script src="app.js?v=19"></script>
+    <script src="cloud-sync.js?v=5"></script>
+    <script src="app.js?v=20"></script>
   </body>
 </html>

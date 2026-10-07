@@ -1,4 +1,4 @@
-/* 更新意図: 既存UIを維持しつつ、複数写真の確認・一括登録をスマホでも扱いやすくする。処理日時: 2026-10-07 13:31 JST */
+/* 更新意図: 服の重要属性だけをカテゴリ別に確認できるコンパクトな登録UIを追加。処理日時: 2026-10-07 22:07 JST */
 :root {
   --ink: #252923;
   --muted: #73766e;
@@ -302,6 +302,13 @@ input[type="range"] { width: 100%; accent-color: var(--sage); }
 .batch-empty strong { color: var(--ink); font-size: 13px; }
 .batch-empty span { font-size: 10px; }
 .item-form-grid { display: grid; grid-template-columns: 280px 1fr; gap: 24px; }
+.profile-confirmation { margin: 0 0 15px; padding: 13px; border: 1px solid #cfd9cb; border-radius: 12px; background: #f3f7f1; }
+.profile-confirmation[hidden], .profile-confirmation [hidden] { display: none; }
+.profile-confirmation-heading { display: grid; gap: 3px; margin-bottom: 10px; }
+.profile-confirmation-heading strong { color: var(--sage-dark); font-size: 11px; }
+.profile-confirmation-heading span { color: #6d776a; font-size: 9px; line-height: 1.5; }
+.profile-confirmation-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; }
+.profile-confirmation .field span { color: #647061; }
 .photo-drop { position: relative; aspect-ratio: 4/5; display: grid; place-items: center; overflow: hidden; background: #f1eee7; border: 1px dashed #cfc8ba; border-radius: 14px; cursor: pointer; }
 .photo-drop input { position: absolute; opacity: 0; }
 .photo-drop img { width: 100%; height: 100%; object-fit: cover; }
@@ -412,6 +419,7 @@ input[type="range"] { width: 100%; accent-color: var(--sage); }
   .item-form-grid { grid-template-columns: 1fr; }
   .photo-drop { max-height: 260px; }
   .fields-grid { grid-template-columns: 1fr; }
+  .profile-confirmation-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .field.full { grid-column: auto; }
   .dialog-card { padding: 22px 18px; }
   .batch-toolbar { align-items: stretch; flex-direction: column; }

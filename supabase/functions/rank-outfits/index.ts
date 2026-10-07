@@ -1,4 +1,4 @@
-// 追加意図: 既存ルールを必ず土台に残し、設定済みの場合だけJevとClaudeで安全に再順位付けする。処理日時: 2026-10-03 19:08 JST
+// 更新意図: 既存ルールを土台に、形・丈・袖丈・厚み・重ね着役割をJevとClaudeの再順位付けへ渡す。処理日時: 2026-10-07 22:07 JST
 import { createClient } from "npm:@supabase/supabase-js@2.49.4";
 
 const MAX_CANDIDATES = 12;
@@ -22,6 +22,10 @@ type CandidateItem = {
   pattern?: string;
   material?: string;
   silhouette?: string;
+  garmentLength?: string;
+  sleeveLength?: string;
+  thickness?: string;
+  layerRole?: string;
   style?: string;
 };
 
@@ -110,6 +114,10 @@ function validateCandidates(value: unknown): Candidate[] {
         pattern: text(item.pattern, 40),
         material: text(item.material, 40),
         silhouette: text(item.silhouette, 40),
+        garmentLength: text(item.garmentLength, 40),
+        sleeveLength: text(item.sleeveLength, 40),
+        thickness: text(item.thickness, 40),
+        layerRole: text(item.layerRole, 40),
         style: text(item.style, 40),
       };
     });
@@ -168,7 +176,7 @@ async function rankWithJev(
   }));
   const state = {
     task:
-      "Rank menswear outfits. Respect practical rule scores, the user's learned preferences, current conditions, and outfit coherence. Do not reward novelty when practicality is weak.",
+      "Rank menswear outfits. Respect practical rule scores, the user's learned preferences, current conditions, silhouette balance, garment lengths, sleeve lengths, fabric thickness, layering roles, and outfit coherence. Do not reward novelty when practicality is weak.",
     conditions,
     localPreferenceModel: preferenceSnapshot,
     longTermPreferenceProfile: storedProfile,
@@ -431,7 +439,7 @@ Deno.serve(async (request) => {
       100,
     ),
     admin.from("garments").select(
-      "id,name,category,color,pattern,material,silhouette,style,statement",
+      "id,name,category,color,pattern,material,silhouette,garment_length,sleeve_length,thickness,layer_role,style,statement",
     ).eq("user_id", user.id).limit(160),
     admin.from("ai_preference_profiles").select(
       "profile,feedback_count,model,updated_at",

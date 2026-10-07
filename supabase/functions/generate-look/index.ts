@@ -1,4 +1,4 @@
-// 追加意図: 公開サイトへAPIキーを置かず、認証・回数制限・非公開保存を経由して匿名モデルの着用イメージを生成する。処理日時: 2026-09-30 JST
+// 更新意図: 服画像に加えて形・丈・袖丈・厚み・重ね着役割も渡し、着用イメージの再現性を高める。処理日時: 2026-10-07 22:07 JST
 import { createClient } from "npm:@supabase/supabase-js@2.49.4";
 
 const OPENAI_MODEL = "gpt-image-2.5-flare";
@@ -13,6 +13,11 @@ type GarmentInput = {
   name: string;
   category: string;
   color?: string;
+  silhouette?: string;
+  garmentLength?: string;
+  sleeveLength?: string;
+  thickness?: string;
+  layerRole?: string;
   imageDataUrl: string;
 };
 
@@ -72,6 +77,11 @@ function validateItems(value: unknown): GarmentInput[] {
       name: item.name.trim().slice(0, 120),
       category,
       color: typeof item.color === "string" ? item.color.slice(0, 40) : "",
+      silhouette: typeof item.silhouette === "string" ? item.silhouette.slice(0, 40) : "",
+      garmentLength: typeof item.garmentLength === "string" ? item.garmentLength.slice(0, 40) : "",
+      sleeveLength: typeof item.sleeveLength === "string" ? item.sleeveLength.slice(0, 40) : "",
+      thickness: typeof item.thickness === "string" ? item.thickness.slice(0, 40) : "",
+      layerRole: typeof item.layerRole === "string" ? item.layerRole.slice(0, 40) : "",
       imageDataUrl,
     };
   });
@@ -79,7 +89,7 @@ function validateItems(value: unknown): GarmentInput[] {
 
 function buildPrompt(items: GarmentInput[], conditions: Record<string, unknown>) {
   const garmentList = items.map((item, index) => (
-    `Reference ${index + 1}: ${item.category}, ${item.name}${item.color ? `, color ${item.color}` : ""}`
+    `Reference ${index + 1}: ${item.category}, ${item.name}${item.color ? `, color ${item.color}` : ""}${item.silhouette ? `, silhouette ${item.silhouette}` : ""}${item.garmentLength ? `, length ${item.garmentLength}` : ""}${item.sleeveLength ? `, sleeve ${item.sleeveLength}` : ""}${item.thickness ? `, fabric ${item.thickness}` : ""}${item.layerRole ? `, role ${item.layerRole}` : ""}`
   )).join("\n");
   const occasion = typeof conditions.occasion === "string" ? conditions.occasion : "daily";
   const mood = typeof conditions.mood === "string" ? conditions.mood : "relaxed";

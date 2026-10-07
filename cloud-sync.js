@@ -1,4 +1,4 @@
-/* 更新意図: 実物のみ設定と評価理由の同期に加え、認証済みEdge Function経由の任意AI再順位付けを追加。処理日時: 2026-10-03 19:08 JST */
+/* 更新意図: 服の形・丈・袖丈・厚み・重ね着役割を端末とSupabase間で欠落なく同期する。処理日時: 2026-10-07 22:07 JST */
 (function attachKinariCloud(root) {
   const STORAGE_BUCKET = "garment-images";
   const SDK_URL = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2";
@@ -42,6 +42,12 @@
       pattern: item.pattern || "solid",
       material: item.material || "other",
       silhouette: item.silhouette || "regular",
+      garment_length: item.garmentLength || "regular",
+      sleeve_length: item.sleeveLength || "unknown",
+      thickness: item.thickness || "medium",
+      layer_role: item.layerRole || (item.category === "outer" ? "outer" : "standalone"),
+      attribute_source: item.attributeSource || "legacy",
+      attribute_confidence: Number(item.attributeConfidence ?? 50),
       style: item.style || "casual",
       statement: Number(item.statement || 2),
       status: item.status || "ready",
@@ -67,6 +73,12 @@
       pattern: row.pattern,
       material: row.material,
       silhouette: row.silhouette,
+      garmentLength: row.garment_length || "regular",
+      sleeveLength: row.sleeve_length || "unknown",
+      thickness: row.thickness || "medium",
+      layerRole: row.layer_role || (row.category === "outer" ? "outer" : "standalone"),
+      attributeSource: row.attribute_source || "legacy",
+      attributeConfidence: Number(row.attribute_confidence ?? 50),
       style: row.style,
       statement: Number(row.statement),
       status: row.status,

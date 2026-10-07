@@ -1,4 +1,4 @@
-// 更新意図: 一括登録の導線に加え、写真形状によるボトムス判定を回帰確認する。処理日時: 2026-10-07 14:17 JST
+// 更新意図: 一括登録の導線・ボトムス判定・パンツ形状の確認欄を回帰確認する。処理日時: 2026-10-07 22:07 JST
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
@@ -12,8 +12,8 @@ const html = fs.readFileSync(path.join(root, "index.html"), "utf8");
 assert.match(html, /id="item-photo"[^>]+multiple/, "通常登録から複数写真を選べるようにしてください");
 assert.match(html, /id="batch-photo-picker"[^>]+multiple/, "クローゼットに一括登録の入口が必要です");
 assert.match(html, /id="batch-dialog"/, "一括登録の確認画面が必要です");
-assert.match(html, /app\.js\?v=19/, "公開キャッシュ番号を更新してください");
-assert.match(html, /styles\.css\?v=16/, "一括登録のスマホ調整を確実に配信してください");
+assert.match(html, /app\.js\?v=20/, "公開キャッシュ番号を更新してください");
+assert.match(html, /styles\.css\?v=17/, "特徴確認UIを確実に配信してください");
 assert.match(appSource, /const MAX_BATCH_ITEMS = 20;/, "スマホ負荷を抑える上限が必要です");
 assert.match(appSource, /await putMany\("items", newItems\)/, "一括登録は単一トランザクションで保存してください");
 assert.match(appSource, /queueCloudSync\(\);\s*showToast\(`\$\{count\}点をクローゼットに追加しました`\)/s, "保存後の同期は一度だけ実行してください");
@@ -34,6 +34,7 @@ assert.equal(denim.category, "bottoms");
 assert.equal(denim.color, "navy");
 assert.equal(denim.name, "ネイビーのボトムス");
 assert.equal(denim.material, "denim");
+assert.equal(denim.silhouette, "straight");
 
 const fallback = vm.runInContext('batchDraftMetadata("closet-photo.jpg", "green")', context);
 assert.equal(fallback.category, "tops");
@@ -43,6 +44,14 @@ assert.equal(fallback.name, "グリーンのトップス");
 const categoryFilename = vm.runInContext('batchDraftMetadata("bottoms-02.jpg", "beige")', context);
 assert.equal(categoryFilename.category, "bottoms");
 assert.equal(categoryFilename.name, "ベージュのボトムス");
+
+const widePants = vm.runInContext('batchDraftMetadata("navy-wide-jeans.jpg", "navy")', context);
+assert.equal(widePants.silhouette, "wide", "ファイル名からワイドパンツを推測できる場合は形へ反映してください");
+assert.match(appSource, /data-batch-field="silhouette"/, "一括登録でもパンツの形を修正できる必要があります");
+assert.match(html, /id="item-garment-length"/, "丈をシルエットから分離してください");
+assert.match(html, /id="item-sleeve-length"/, "袖丈を確認できる必要があります");
+assert.match(html, /id="item-thickness"/, "生地の厚みを確認できる必要があります");
+assert.match(html, /id="item-layer-role"/, "重ね着での役割を確認できる必要があります");
 
 function flatPixels(width, height, background = [245, 243, 237]) {
   const pixels = new Uint8Array(width * height * 4);

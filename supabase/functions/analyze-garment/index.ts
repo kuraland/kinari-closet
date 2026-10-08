@@ -1,8 +1,8 @@
-// 追加意図: 服写真をGeminiで構造化解析し、API未設定時にも既存の端末内推測へ安全に戻れるサーバー側入口を追加する。処理日時: 2026-10-07 23:35 JST
+// 更新意図: Gemini 3系の思考量と構造化出力を現行API仕様へ合わせ、服属性JSONを安定して取得する。処理日時: 2026-10-08 10:38 JST
 import { createClient } from "npm:@supabase/supabase-js@2.49.4";
 
 const MODEL = Deno.env.get("GEMINI_VISION_MODEL") || "gemini-3.1-flash-lite";
-const PROMPT_VERSION = "garment-profile-v1";
+const PROMPT_VERSION = "garment-profile-v3";
 const DAILY_LIMIT = Number(Deno.env.get("GARMENT_ANALYSIS_DAILY_LIMIT") || 60);
 const MAX_IMAGE_DATA_LENGTH = 4_200_000;
 
@@ -226,9 +226,10 @@ Deno.serve(async (request) => {
       body: JSON.stringify({
         contents: [{ role: "user", parts: [{ text: prompt }, { inlineData: { mimeType: image.mimeType, data: image.data } }] }],
         generationConfig: {
-          temperature: 0.1,
-          maxOutputTokens: 1200,
-          responseFormat: { text: { mimeType: "application/json", schema: schema() } },
+          temperature: 1,
+          maxOutputTokens: 4096,
+          thinkingConfig: { thinkingLevel: "minimal", includeThoughts: false },
+          responseFormat: { text: { mimeType: "APPLICATION_JSON", schema: schema() } },
         },
       }),
       signal: AbortSignal.timeout(25_000),
@@ -238,7 +239,14 @@ Deno.serve(async (request) => {
       console.error("Gemini garment analysis failed", geminiResponse.status, geminiBody?.error?.status);
       return jsonResponse({ error: "AI_UNAVAILABLE", message: "AI解析を利用できないため、端末内で仮判定しました" }, 502, origin);
     }
-    const responseText = geminiBody?.candidates?.[0]?.content?.parts?.map((part: Record<string, unknown>) => part.text || "").join("") || "";
+    const responseText = geminiBody?.candidates?.[0]?.content?.parts
+      ?.filter((part: Record<string, unknown>) => part.thought !== true)
+      .map((part: Record<string, unknown>) => part.text || "")
+      .join("") || "";
+    if (!responseText) {
+      console.error("Gemini returned no final text", geminiBody?.candidates?.[0]?.finishReason || "UNKNOWN");
+      throw new Error("EMPTY_MODEL_OUTPUT");
+    }
     const result = normalizeResult(JSON.parse(responseText), localGuess);
 
     const { data: run, error: insertError } = await supabase.from("garment_analysis_runs").insert({

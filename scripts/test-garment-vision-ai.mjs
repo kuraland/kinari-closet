@@ -1,4 +1,4 @@
-// 追加意図: AI画像解析が認証・秘密鍵保護・確信度確認・端末内フォールバックを保ったまま登録導線へ接続されることを回帰確認する。処理日時: 2026-10-07 23:35 JST
+// 更新意図: AI画像解析の認証・秘密鍵保護・現行Gemini構造化出力・確信度確認・端末内フォールバックを回帰確認する。処理日時: 2026-10-08 10:45 JST
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
@@ -17,7 +17,7 @@ assert.doesNotMatch(app, /GEMINI_API_KEY/, "ブラウザへGeminiの秘密鍵を
 assert.match(edge, /supabase\.auth\.getUser\(\)/, "画像解析はログイン済みユーザーだけに制限してください");
 assert.match(edge, /garment_analysis_runs/, "AI推測履歴を保存してください");
 assert.match(edge, /DAILY_LIMIT/, "API費用を守る日次上限が必要です");
-assert.match(edge, /responseFormat[\s\S]+application\/json[\s\S]+schema/, "Geminiから構造化JSONを受け取ってください");
+assert.match(edge, /responseFormat[\s\S]+APPLICATION_JSON[\s\S]+schema/, "Geminiから現行API仕様の構造化JSONを受け取ってください");
 
 for (const field of ["category", "color", "pattern", "material", "silhouette", "garmentLength", "sleeveLength", "thickness", "layerRole", "style", "confidence", "fieldConfidences", "imageQuality"]) {
   assert.match(edge, new RegExp(`\\b${field}\\b`), `${field} を画像解析結果に含めてください`);

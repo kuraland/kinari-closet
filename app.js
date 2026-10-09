@@ -1,4 +1,4 @@
-/* 更新意図: 同期失敗時に原因別の案内を表示し、スマホで次の操作を判断できるようにする。処理日時: 2026-10-09 10:30 JST */
+/* 更新意図: クラウド同期で変更のない端末内画像を再保存せず、iPhoneのBlob再保存エラーを回避する。処理日時: 2026-10-09 12:20 JST */
 const DB_NAME = "kinari-closet";
 const DB_VERSION = 2;
 const SETTINGS_KEY = "kinari-stylist-settings";
@@ -533,7 +533,14 @@ function renderCloudDialog() {
 }
 
 async function writeCloudResultToLocal(result) {
-  for (const item of result.items) await put("items", item);
+  const currentItemsById = new Map(items.map((item) => [item.id, item]));
+  for (const item of result.items) {
+    const current = currentItemsById.get(item.id);
+    const unchanged = current
+      && current.updatedAt === item.updatedAt
+      && current.photo === item.photo;
+    if (!unchanged) await put("items", item);
+  }
   for (const entry of result.feedback) await put("feedback", entry);
   localStorage.setItem(SETTINGS_KEY, JSON.stringify(result.settings || {}));
   [items, feedback] = await Promise.all([getAll("items"), getAll("feedback")]);

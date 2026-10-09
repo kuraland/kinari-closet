@@ -1,4 +1,4 @@
-/* 更新意図: iPhoneでの同期時に画像本体をIndexedDBへ重複保存せず、期限付きURLで軽量に表示する。処理日時: 2026-10-09 10:30 JST */
+/* 更新意図: iPhoneで既存Blobを再保存せず、同期対象の全クラウド画像を期限付きURLへ確実に置換する。処理日時: 2026-10-09 12:20 JST */
 (function attachKinariCloud(root) {
   const STORAGE_BUCKET = "garment-images";
   const SDK_URL = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2";
@@ -23,14 +23,6 @@
 
   function isLocalNewer(localValue, remoteValue) {
     return isoTime(localValue) > isoTime(remoteValue);
-  }
-
-  function isPhotoBlob(photo) {
-    return typeof Blob !== "undefined" && photo instanceof Blob;
-  }
-
-  function shouldResolveRemotePhoto(photo, remoteIsNewer) {
-    return Boolean(remoteIsNewer || !isPhotoBlob(photo));
   }
 
   function ensureNoError(result, fallbackMessage) {
@@ -288,14 +280,12 @@
   async function createPhotoURLs(paths) {
     const uniquePaths = [...new Set(paths.filter(Boolean))];
     if (!uniquePaths.length) return new Map();
-    try {
-      const result = await client.storage.from(STORAGE_BUCKET).createSignedUrls(uniquePaths, SIGNED_PHOTO_TTL_SECONDS);
-      const data = ensureNoError(result, "服の写真を表示できません") || [];
-      return new Map(data.map((entry) => [entry.path, entry.signedUrl || entry.signedURL || null]));
-    } catch (error) {
-      console.info("写真の表示URLは次回同期時に再取得します", error);
-      return new Map();
-    }
+    const result = await client.storage.from(STORAGE_BUCKET).createSignedUrls(uniquePaths, SIGNED_PHOTO_TTL_SECONDS);
+    const data = ensureNoError(result, "服の写真を表示できません") || [];
+    const urls = new Map(data.map((entry) => [entry.path, entry.signedUrl || entry.signedURL || null]));
+    const missingCount = uniquePaths.filter((path) => !urls.get(path)).length;
+    if (missingCount) throw new Error(`服の写真${missingCount}件を表示用に準備できません`);
+    return urls;
   }
 
   async function fetchCloudRows() {
@@ -358,19 +348,12 @@
     remote = await fetchCloudRows();
     const localById = new Map(localGarments.map((item) => [item.id, item]));
     const mergedItems = items.filter((item) => item.isSample);
-    const rowsNeedingPhotoURLs = remote.garments.filter((row) => {
-      const local = localById.get(row.id);
-      const remoteIsNewer = !local || isLocalNewer(row.updated_at, local.updatedAt);
-      return row.photo_path && shouldResolveRemotePhoto(local?.photo, remoteIsNewer);
-    });
+    const rowsNeedingPhotoURLs = remote.garments.filter((row) => row.photo_path);
     const remotePhotoURLs = await createPhotoURLs(rowsNeedingPhotoURLs.map((row) => row.photo_path));
     for (const row of remote.garments) {
       const local = localById.get(row.id);
       let photo = local?.photo || null;
-      const remoteIsNewer = !local || isLocalNewer(row.updated_at, local.updatedAt);
-      if (row.photo_path && shouldResolveRemotePhoto(photo, remoteIsNewer)) {
-        photo = remotePhotoURLs.get(row.photo_path) || photo;
-      }
+      if (row.photo_path) photo = remotePhotoURLs.get(row.photo_path);
       mergedItems.push(fromGarmentRow(row, photo));
     }
 
@@ -403,7 +386,7 @@
     confirmGarmentAnalysis,
     syncAll,
     getUser: () => currentUser,
-    __test: { isoTime, isLocalNewer, isPhotoBlob, shouldResolveRemotePhoto, toGarmentRow, fromGarmentRow, toFeedbackRow, fromFeedbackRow },
+    __test: { isoTime, isLocalNewer, toGarmentRow, fromGarmentRow, toFeedbackRow, fromFeedbackRow },
   };
 
   root.KinariCloud = api;

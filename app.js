@@ -1,4 +1,4 @@
-/* 更新意図: Gemini画像解析を任意で追加し、確信度表示・ユーザー確認・端末内推測への自動復帰を一体化する。処理日時: 2026-10-07 23:35 JST */
+/* 更新意図: 同期失敗時に原因別の案内を表示し、スマホで次の操作を判断できるようにする。処理日時: 2026-10-09 10:30 JST */
 const DB_NAME = "kinari-closet";
 const DB_VERSION = 2;
 const SETTINGS_KEY = "kinari-stylist-settings";
@@ -508,6 +508,20 @@ function setCloudState(state, detail = "") {
   })[state];
 }
 
+function cloudSyncErrorMessage(error) {
+  const message = String(error?.message || "");
+  if (/quota|storage space|disk full/i.test(message) || error?.name === "QuotaExceededError") {
+    return "端末の保存容量が不足しています。不要なタブを閉じて再度お試しください。";
+  }
+  if (/refresh token|jwt|session|not authenticated|login/i.test(message)) {
+    return "ログイン期限が切れています。一度ログアウトして、同じアカウントでログインしてください。";
+  }
+  if (/failed to fetch|network|offline|load failed/i.test(message)) {
+    return "通信を確認して、もう一度同期してください。";
+  }
+  return message || "同期処理を完了できませんでした。";
+}
+
 function renderCloudDialog() {
   const configured = Boolean(window.KinariCloud?.isConfigured());
   $("#cloud-config-panel").hidden = configured;
@@ -548,8 +562,9 @@ async function syncCloudData({ announce = false } = {}) {
     return result;
   }).catch((error) => {
     console.error("クラウド同期に失敗しました", error);
-    setCloudState("error", error.message);
-    if (announce) showToast("同期できませんでした。端末内には保存されています");
+    const detail = cloudSyncErrorMessage(error);
+    setCloudState("error", detail);
+    if (announce) showToast(`同期できませんでした：${detail}`);
     return null;
   }).finally(() => {
     cloudSyncPromise = null;

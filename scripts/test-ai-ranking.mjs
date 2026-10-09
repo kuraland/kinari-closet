@@ -20,7 +20,7 @@ assert.match(functionSource, /Deno\.env\.get\("ANTHROPIC_API_KEY"\)/, "Anthropic
 assert.match(functionSource, /mode: "rules"/, "API未設定時のルールフォールバックが必要です");
 assert.match(functionSource, /JEV_CONFIDENCE_THRESHOLD/, "Jevの低確信度をClaudeへ引き継いでください");
 assert.match(migrationSource, /ai_preference_profiles/, "Claudeの好みプロフィール保存先が必要です");
-assert.match(html, /app\.js\?v=21/, "公開キャッシュ番号を更新してください");
+assert.match(html, /app\.js\?v=22/, "公開キャッシュ番号を更新してください");
 assert.match(functionSource, /garmentLength/, "AI再順位付けへ丈を渡してください");
 assert.match(functionSource, /sleeveLength/, "AI再順位付けへ袖丈を渡してください");
 assert.match(functionSource, /thickness/, "AI再順位付けへ生地の厚みを渡してください");

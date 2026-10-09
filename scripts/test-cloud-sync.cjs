@@ -1,4 +1,4 @@
-// 更新意図: 詳細な服属性の同期と、画像解析・確定値記録を含む認証済みEdge Function連携を回帰確認する。処理日時: 2026-10-08 08:10 JST
+// 更新意図: 詳細な服属性に加え、クラウド画像を端末容量を圧迫しないURLで解決する判定を回帰確認する。処理日時: 2026-10-09 10:30 JST
 const assert = require("node:assert/strict");
 const cloud = require("../cloud-sync.js");
 const { __test } = cloud;
@@ -57,6 +57,10 @@ assert.equal(restored.attributeConfidence, 100);
 assert.equal(__test.isLocalNewer("2026-09-29T01:00:00Z", "2026-09-29T00:00:00Z"), true);
 assert.equal(__test.isLocalNewer("2026-09-28T23:00:00Z", "2026-09-29T00:00:00Z"), false);
 assert.equal(__test.isLocalNewer("2026-09-29T00:00:00Z", "2026-09-29T00:00:00Z"), false);
+assert.equal(__test.shouldResolveRemotePhoto(null, false), true);
+assert.equal(__test.shouldResolveRemotePhoto("https://example.test/signed-photo", false), true);
+assert.equal(__test.shouldResolveRemotePhoto(new Blob(["photo"], { type: "image/jpeg" }), false), false);
+assert.equal(__test.shouldResolveRemotePhoto(new Blob(["photo"], { type: "image/jpeg" }), true), true);
 
 const feedback = {
   id: "feedback-1",

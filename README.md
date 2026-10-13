@@ -42,6 +42,8 @@
 
 > 更新意図: ログイン中だけGemini画像解析を使い、項目別確信度の確認、API未設定時の端末内フォールバック、AI推測とユーザー確定値の差分記録を追加。処理日時: 2026-10-07 23:35 JST
 
+> 更新意図: 既存のGemini APIキーをコーデ再順位付けにも共用し、Jev・Claudeを追加契約しなくてもAI服提案を利用可能にする。処理日時: 2026-10-13 21:20 JST
+
 服の写真と属性をブラウザ内に保存し、天気・気温・予定・気分に応じたコーデを最大4案提案するローカルファーストのプロトタイプです。
 
 ## 公開版
@@ -178,7 +180,7 @@ supabase secrets set OPENAI_API_KEY
 
 生成処理は`gpt-5`から画像生成ツールの`gpt-image-2.5-flare`を低品質・縦長指定で呼び出します。利用モデルや料金は変わる可能性があるため、運用前に[OpenAI公式の画像生成ガイド](https://developers.openai.com/api/docs/guides/image-generation)を確認してください。生成レコードは`generated_looks`、完成画像は非公開の`generated-looks`バケットへ保存し、本人以外には読み取りを許可しません。失敗した生成は1日3回の上限へ数えません。
 
-## Jev・Claudeによるコーデ再順位付けの初期設定
+## Gemini・Jev・Claudeによるコーデ再順位付けの初期設定
 
 コーデ候補は必ず既存ルールで先に生成します。ログイン中かつSupabase Edge FunctionへAPIキーが設定されている場合だけ、上位候補を追加評価します。APIキーはGitHub Pagesへ置かず、候補の属性と必要最小限の好み情報だけをEdge Functionから各APIへ送ります。
 
@@ -189,7 +191,7 @@ supabase secrets set OPENAI_API_KEY
 supabase functions deploy rank-outfits
 ```
 
-3. TypeSafeとAnthropicのキーをSupabase Secretsへ登録します。片方だけでも動作します。
+3. 服写真のAI解析で`GEMINI_API_KEY`を登録済みなら、そのキーだけでコーデ再順位付けも動作します。必要に応じてTypeSafeとAnthropicのキーを追加すると、JevまたはClaudeを優先利用できます。
 
 ```bash
 supabase secrets set TYPESAFE_API_KEY
@@ -198,6 +200,7 @@ supabase secrets set ANTHROPIC_API_KEY
 
 標準動作は次のとおりです。
 
+- `GEMINI_API_KEY`あり: Jevが未設定・利用不可の場合、`gemini-3.1-flash-lite`でルール上位候補を採点
 - `TYPESAFE_API_KEY`あり: ルール上位の最大12候補を`jev-latest`で採点し、ルール65%・Jev35%で総合点を補正
 - `ANTHROPIC_API_KEY`あり: 評価が20件以上になり、Jevの確信度が低い・上位が僅差・好みプロフィールの更新時期、のいずれかでClaudeを利用
 - Claudeの分析結果: `ai_preference_profiles`へ保存し、次回のJev判定でも再利用
@@ -208,6 +211,7 @@ supabase secrets set ANTHROPIC_API_KEY
 
 ```bash
 supabase secrets set JEV_MODEL=jev-latest
+supabase secrets set GEMINI_RANKING_MODEL=gemini-3.1-flash-lite
 supabase secrets set CLAUDE_MODEL=claude-sonnet-5-5
 supabase secrets set CLAUDE_MIN_FEEDBACK=20
 supabase secrets set CLAUDE_REFRESH_STEP=10

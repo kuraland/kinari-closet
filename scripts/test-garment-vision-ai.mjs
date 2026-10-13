@@ -42,6 +42,6 @@ assert.match(app, /AI_BATCH_CONCURRENCY = 3/, "一括解析の同時実行数を
 assert.match(app, /confirmVisionAnalysis\(currentItemAnalysis/, "通常登録のユーザー修正を学習用履歴へ残してください");
 assert.match(styles, /data-ai-state="review"/, "要確認項目を視覚的に区別してください");
 assert.match(html, /cloud-sync\.js\?v=8/, "クラウド処理のキャッシュ番号を更新してください");
-assert.match(html, /app\.js\?v=23/, "アプリ処理のキャッシュ番号を更新してください");
+assert.match(html, /app\.js\?v=24/, "アプリ処理のキャッシュ番号を更新してください");
 
 console.log("garment vision AI tests passed");

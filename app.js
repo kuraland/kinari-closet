@@ -1,4 +1,4 @@
-/* 更新意図: クラウド同期で変更のない端末内画像を再保存せず、iPhoneのBlob再保存エラーを回避する。処理日時: 2026-10-09 12:20 JST */
+/* 更新意図: 既存のGemini APIをコーデ再順位付けにも使い、判定元を画面で区別して表示する。処理日時: 2026-10-13 21:20 JST */
 const DB_NAME = "kinari-closet";
 const DB_VERSION = 2;
 const SETTINGS_KEY = "kinari-stylist-settings";
@@ -2191,7 +2191,7 @@ function aiCandidatePool(candidates, limit = MAX_AI_RANKING_CANDIDATES) {
 }
 
 function applyAIRanking(candidates, ranking) {
-  if (!ranking || !["jev", "claude"].includes(ranking.mode) || !ranking.scores) return candidates;
+  if (!ranking || !["gemini", "jev", "claude"].includes(ranking.mode) || !ranking.scores) return candidates;
   return candidates.map((candidate) => {
     const aiScore = Number(ranking.scores[candidate.id]);
     if (!Number.isFinite(aiScore)) return candidate;
@@ -2212,13 +2212,14 @@ async function rankOutfitsWithOptionalAI(candidates, conditions) {
   });
   const mode = ranking?.mode || "rules";
   return {
-    candidates: ["jev", "claude"].includes(mode) ? applyAIRanking(pool, ranking) : candidates,
+    candidates: ["gemini", "jev", "claude"].includes(mode) ? applyAIRanking(pool, ranking) : candidates,
     meta: {
       mode,
       confidence: Number(ranking?.confidence),
       summary: ranking?.summary || "ルール判定を使用しました",
       feedbackCount: Number(ranking?.feedbackCount || 0),
       profileUpdated: Boolean(ranking?.profileUpdated),
+      baseMode: ranking?.baseMode || "",
     },
   };
 }
@@ -2329,9 +2330,16 @@ function outfitReason(outfit) {
 
 function rankingLabel(meta = {}) {
   if (meta.pending) return "ルール判定・AI確認中";
-  if (meta.mode === "claude") return "ルール＋Jev＋Claude";
+  if (meta.mode === "claude") return meta.baseMode === "gemini" ? "ルール＋Gemini＋Claude" : "ルール＋Jev＋Claude";
+  if (meta.mode === "gemini") return "ルール＋Gemini";
   if (meta.mode === "jev") return "ルール＋Jev";
   return "ルール判定";
+}
+
+function aiProviderLabel(mode) {
+  if (mode === "claude") return "Claude";
+  if (mode === "gemini") return "Gemini";
+  return "Jev";
 }
 
 function renderOutfits(outfits, conditions, rankingMeta = { mode: "rules" }) {
@@ -2358,7 +2366,7 @@ function renderOutfits(outfits, conditions, rankingMeta = { mode: "rules" }) {
           <span><small>服同士の相性</small><strong>${outfit.components.harmony}</strong></span>
           <span><small>今季らしさ</small><strong>${outfit.components.trend}</strong></span>
         </div>
-        ${Number.isFinite(outfit.aiScore) ? `<p class="ai-score-note">${outfit.aiMode === "claude" ? "Claude" : "Jev"}補正 ${outfit.aiScore}点・ルール総合 ${outfit.ruleScore}点</p>` : ""}
+        ${Number.isFinite(outfit.aiScore) ? `<p class="ai-score-note">${aiProviderLabel(outfit.aiMode)}補正 ${outfit.aiScore}点・ルール総合 ${outfit.ruleScore}点</p>` : ""}
         <p class="outfit-reason">${escapeHTML(outfitReason(outfit))}</p>
         <div class="outfit-actions">
           <button class="secondary-button look-button" type="button" data-generate-look="${outfit.id}"><span aria-hidden="true">✦</span>この服で着用イメージを作る</button>

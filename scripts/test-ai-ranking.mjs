@@ -1,4 +1,4 @@
-// 更新意図: 服の詳細な形状情報を渡した後も、Jev・Claude補正とルールフォールバックを回帰確認する。処理日時: 2026-10-07 22:07 JST
+// 更新意図: 既存Geminiキーによるコーデ補正、Jev・Claude補正、ルールフォールバックを回帰確認する。処理日時: 2026-10-13 21:20 JST
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
@@ -15,12 +15,15 @@ const html = fs.readFileSync(path.join(root, "index.html"), "utf8");
 assert.match(cloudSource, /functions\.invoke\("rank-outfits"/, "AI判定はEdge Function経由にしてください");
 assert.doesNotMatch(cloudSource, /TYPESAFE_API_KEY\s*[:=]/, "TypeSafeの秘密鍵をブラウザコードへ置いてはいけません");
 assert.doesNotMatch(cloudSource, /ANTHROPIC_API_KEY\s*[:=]/, "Anthropicの秘密鍵をブラウザコードへ置いてはいけません");
+assert.doesNotMatch(cloudSource, /GEMINI_API_KEY\s*[:=]/, "Geminiの秘密鍵をブラウザコードへ置いてはいけません");
 assert.match(functionSource, /Deno\.env\.get\("TYPESAFE_API_KEY"\)/, "TypeSafeキーはサーバーsecretから取得してください");
 assert.match(functionSource, /Deno\.env\.get\("ANTHROPIC_API_KEY"\)/, "Anthropicキーはサーバーsecretから取得してください");
+assert.match(functionSource, /Deno\.env\.get\("GEMINI_API_KEY"\)/, "Geminiキーはサーバーsecretから取得してください");
+assert.match(functionSource, /mode: dailyMode/, "GeminiとJevの判定元を画面へ返してください");
 assert.match(functionSource, /mode: "rules"/, "API未設定時のルールフォールバックが必要です");
 assert.match(functionSource, /JEV_CONFIDENCE_THRESHOLD/, "Jevの低確信度をClaudeへ引き継いでください");
 assert.match(migrationSource, /ai_preference_profiles/, "Claudeの好みプロフィール保存先が必要です");
-assert.match(html, /app\.js\?v=23/, "公開キャッシュ番号を更新してください");
+assert.match(html, /app\.js\?v=24/, "公開キャッシュ番号を更新してください");
 assert.match(functionSource, /garmentLength/, "AI再順位付けへ丈を渡してください");
 assert.match(functionSource, /sleeveLength/, "AI再順位付けへ袖丈を渡してください");
 assert.match(functionSource, /thickness/, "AI再順位付けへ生地の厚みを渡してください");
@@ -45,5 +48,10 @@ assert.equal(ranked[0].score, 87, "ルール65%・AI35%で補正してくださ�
 context.rulesOnly = { mode: "rules", scores: { "rule-high": 0 } };
 const unchanged = vm.runInContext("applyAIRanking(testCandidates, rulesOnly)", context);
 assert.equal(unchanged[0].score, 80, "AI未設定時はルール点を変更してはいけません");
+
+context.geminiRanking = { mode: "gemini", scores: { "rule-high": 20, "rule-low": 100 } };
+const geminiRanked = vm.runInContext("applyAIRanking(testCandidates, geminiRanking)", context);
+assert.equal(geminiRanked[0].id, "rule-low", "Gemini補正も候補順へ反映してください");
+assert.equal(geminiRanked[0].aiMode, "gemini", "Gemini補正であることを表示用に保持してください");
 
 console.log("AI ranking fallback tests passed");
